@@ -30,13 +30,21 @@ class Settings(BaseSettings):
     recognizer_file: str = DEFAULT_RECOGNIZER_FILE
 
     match_threshold: float = Field(default=0.363, gt=-1.0, le=1.0)
+    enroll_threshold: float | None = Field(default=None, gt=-1.0, le=1.0)
     min_face_size: int = Field(default=80, ge=1)
+    min_face_frac: float = Field(default=0.15, ge=0.0, le=1.0)
     detector_score_threshold: float = Field(default=0.9, gt=0.0, le=1.0)
     embedding_dim: int = Field(default=128, ge=1)
+
+    detect_max_side: int = Field(default=960, ge=0)
+    max_pixels: int = Field(default=25_000_000, ge=1)
 
     enroll_min_images: int = Field(default=3, ge=1)
     enroll_max_images: int = Field(default=5, ge=1)
     max_upload_bytes: int = Field(default=10 * 1024 * 1024, ge=1)
+
+    api_key: str | None = None
+    template_key: str | None = None
 
     @property
     def detector_path(self) -> Path:
@@ -47,8 +55,10 @@ class Settings(BaseSettings):
         return self.models_dir / self.recognizer_file
 
     @property
-    def model_version(self) -> str:
-        return f"{Path(self.detector_file).stem}+{Path(self.recognizer_file).stem}"
+    def effective_enroll_threshold(self) -> float:
+        if self.enroll_threshold is not None:
+            return self.enroll_threshold
+        return self.match_threshold
 
 
 @lru_cache
