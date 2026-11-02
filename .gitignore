@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+.env
+.env.*
+!.env.example
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Models and datasets (download via scripts; never commit)
+models/
+*.onnx
+data/lfw/
+data/lfw_home/
+data/*.tgz
+data/*.tar*
+eval/output/
+eval/reports/*.png
+!eval/reports/.gitkeep
+
+# Local DB and runtime
+*.db
+*.sqlite
+*.sqlite3
+data/facecheck.db
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Docker
+docker-compose.override.yml
