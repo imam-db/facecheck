@@ -53,7 +53,11 @@ from eval.metrics import (
     wilson_interval,
 )
 from facecheck.config import Settings
-from facecheck.embeddings import OpenCVYuNetSFaceEmbedder, file_sha256
+from facecheck.embeddings import (
+    OpenCVYuNetSFaceEmbedder,
+    decode_image_bgr,
+    file_sha256,
+)
 from facecheck.quality import QualityError
 from facecheck.similarity import cosine_similarity
 
@@ -212,6 +216,18 @@ def _read_pairs_file(pairs_file: Path, images_dir: Path) -> list[tuple[Path, Pat
     return pairs
 
 
+def display_path(path: Path) -> str:
+    """Render a path relative to the repository when possible.
+
+    Committed reports should not embed one machine's absolute layout.
+    """
+
+    try:
+        return path.resolve().relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return path.name
+
+
 def iter_pairs(
     images_dir: Path,
     pairs_file: Path,
@@ -341,16 +357,28 @@ def _latency_summary(values: list[float]) -> dict[str, float]:
     }
 
 
-def _timed_embed(
-    embedder: OpenCVYuNetSFaceEmbedder, image: np.ndarray, repeats: int = 7
+def _encode_jpeg(image: np.ndarray, quality: int = 95) -> bytes:
+    success, buffer = cv2.imencode(
+        ".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), quality]
+    )
+    if not success:
+        raise RuntimeError("could not encode the synthetic frame as JPEG")
+    return buffer.tobytes()
+
+
+def _timed_decode_embed(
+    embedder: OpenCVYuNetSFaceEmbedder, encoded: bytes, repeats: int = 7
 ) -> dict[str, float] | None:
+    """Time the full request path: JPEG decode, then detect + align + embed."""
+
     try:
-        embedder.detect_and_embed(image)
+        embedder.detect_and_embed(decode_image_bgr(encoded))
     except QualityError:
         return None
     timings: list[float] = []
     for _ in range(repeats):
         started = time.perf_counter()
+        image = decode_image_bgr(encoded)
         embedder.detect_and_embed(image)
         timings.append((time.perf_counter() - started) * 1000.0)
     return _latency_summary(timings)
@@ -373,7 +401,8 @@ def _latency_benchmarks(
 ) -> dict[str, dict[str, float]]:
     benchmarks: dict[str, dict[str, float]] = {}
     for name, width, height in (("720p", 1280, 720), ("12mp", 4000, 3000)):
-        summary = _timed_embed(embedder, _synthetic_frame(source, width, height))
+        encoded = _encode_jpeg(_synthetic_frame(source, width, height))
+        summary = _timed_decode_embed(embedder, encoded)
         if summary is not None:
             summary["pixels"] = float(width * height)
             benchmarks[name] = summary
@@ -538,7 +567,10 @@ def render_markdown(report: EvalReport) -> str:
         f"| Verification (two images + cosine) | {latency['pair']['mean']:.2f} ms | "
         f"{latency['pair']['median']:.2f} ms | {latency['pair']['p95']:.2f} ms |",
     ]
-    for name, label in (("720p", "Detect + align + embed, 1280x720"), ("12mp", "Detect + align + embed, 4000x3000")):
+    for name, label in (
+        ("720p", "JPEG decode + detect + align + embed, 1280x720"),
+        ("12mp", "JPEG decode + detect + align + embed, 4000x3000"),
+    ):
         if name in latency:
             summary = latency[name]
             lines.append(
@@ -568,6 +600,8 @@ def render_markdown(report: EvalReport) -> str:
         "- Pairs where either image fails the quality gate are skipped. FTA counts "
         "all skipped pairs; generalized FRR counts skipped genuine pairs as "
         "failures, so a detector that cannot acquire faces does not look good.",
+        "- The 720p and 12 MP latency rows encode the synthetic frame as JPEG and "
+        "time `imdecode` plus detect + align + embed, matching the upload path.",
         "- Confidence intervals are Wilson score intervals at 95%; the FAR bound "
         "uses the exact zero-event rule of three.",
         "- The production service enrolls 3-5 templates and takes the maximum "
@@ -769,9 +803,9 @@ def main(argv: list[str] | None = None) -> int:
             settings.detector_file: file_sha256(settings.detector_path),
             settings.recognizer_file: file_sha256(settings.recognizer_path),
         },
-        images_dir=str(images_dir),
-        train_pairs_file=str(train_pairs_file),
-        test_pairs_file=str(pairs_file),
+        images_dir=display_path(images_dir),
+        train_pairs_file=display_path(train_pairs_file),
+        test_pairs_file=display_path(pairs_file),
         far_target=FAR_TARGET,
         default_threshold=settings.match_threshold,
         train=_split_report(train),
@@ -806,6 +840,7 @@ def main(argv: list[str] | None = None) -> int:
             "detect_max_side": settings.detect_max_side,
             "min_face_size": settings.min_face_size,
             "min_face_frac": settings.min_face_frac,
+            "latency_benchmarks": "JPEG decode + detect + align + embed for 720p and 12 MP",
         },
     )
 
