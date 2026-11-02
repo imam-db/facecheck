@@ -16,7 +16,8 @@ model files are downloaded at setup time and never committed:
 - recognizer: SFace (`face_recognition_sface_2021dec.onnx`, Apache-2.0 model files)
 
 Both are loaded through OpenCV's `FaceDetectorYN` and `FaceRecognizerSF`
-(`opencv-contrib-python`), so no PyTorch/ONNX Runtime dependency is required.
+(`opencv-contrib-python-headless`), so no PyTorch/ONNX Runtime dependency and
+no GUI system libraries are required.
 
 ## Options considered
 
@@ -56,25 +57,41 @@ offline check-in scenarios (Bali field offices with poor connectivity).
 ## Decision
 
 Use YuNet 2023mar for detection and SFace 2021dec for recognition via
-`opencv-contrib-python`.
+`opencv-contrib-python-headless`.
 
 Implementation details:
 
-- Detection runs at the image's native resolution; faces are rejected unless
-  exactly one face is present with a shortest side of at least 80 px
-  (configurable via `FACECHECK_MIN_FACE_SIZE`).
-- Embeddings are L2-normalized float32 vectors of dimension 128, stored as raw
-  bytes in SQLite/Postgres. No vector database is used.
+- Detection, alignment, and embedding run on a downscaled copy of the frame:
+  the longest side is capped at `FACECHECK_DETECT_MAX_SIDE` (960 px by
+  default). A face is rejected unless exactly one face is present, its shortest
+  side is at least `FACECHECK_MIN_FACE_SIZE` (80 px), and it covers at least
+  `FACECHECK_MIN_FACE_FRAC` (15%) of the frame's shortest side. Downscaling
+  bounds CPU cost for phone and 12 MP photos; landmarks and bboxes live in the
+  downscaled coordinate space, which is the same image passed to `alignCrop`.
+- Embeddings are L2-normalized float32 vectors of dimension 128. They are
+  encrypted with AES-GCM before storage; no vector database is used.
 - Enrollment stores 3-5 independent templates per person and verification takes
   the maximum cosine similarity against those templates. Averaging templates
-  was rejected because it blurs pose/lighting variation.
-- The default cosine match threshold starts at 0.363 (OpenCV's documented SFace
-  cosine threshold) and was re-checked on the LFW evaluation in
-  `eval/reports/lfw_report.md`. The 848 usable test pairs give 0.9945 ROC AUC;
-  at 0.363 the threshold produced 0.00% FAR and 98.09% TPR. The FAR <= 1%
-  operating point (0.310) only raises TPR to 98.33% while accepting four
-  impostors, so 0.363 is retained as the production default. The chosen value is
-  stored in `Settings.match_threshold` and reported by `GET /v1/meta`.
+  was rejected because it blurs pose/lighting variation. Max-over-k is
+  conservative for FRR, but optimistic for FAR: an impostor gets k chances, so
+  the multi-template false-accept rate can exceed the single-template estimate
+  measured on LFW.
+- The default cosine match threshold is 0.363, OpenCV's documented SFace cosine
+  threshold. It was chosen a priori and is **not** tuned on the test split. The
+  reported operating point is fitted on the LFW train pairs
+  (`pairsDevTrain.txt`) and measured on the test pairs (`pairsDevTest.txt`):
+  0.3003 gives 0.96% train FAR and, applied unchanged to the test split, 98.33%
+  TPR and 0.93% FAR (4 / 430). At the shipped 0.363 the test split has 0 false
+  accepts in 430 impostor pairs, so the rule-of-three 95% upper bound is 0.69%,
+  not 0%. Ordinary FRR is 1.91% (Wilson 95% CI 0.97%-3.73%); generalized FRR,
+  which counts skipped genuine pairs as failures, is 18.00% (90 / 500). The
+  stricter 0.363 remains the default because false accepts are the costlier
+  attendance error.
+- `model_version` embeds an 8-character SHA-256 prefix of each ONNX file, so
+  models with identical names but different weights cannot be confused.
+  Thresholds are tied to that version; changing either model requires
+  re-enrollment and threshold review. v0 documents this but does not enforce a
+  per-version threshold registry.
 
 ## Consequences
 
@@ -97,9 +114,14 @@ Negative / open risks:
 - LFW is a historical, predominantly Western celebrity dataset. It says little
   about Indonesian SPG uniforms, hijab, cheap-phone cameras, or outdoor Bali
   lighting. See the README limitations and roadmap.
+- The strict detection gate skipped 15.2% of LFW test pairs. Reporting FTA and
+  generalized FRR (18.00%) makes that cost visible; a deployment where users
+  cannot produce a clean single-face frame will be dominated by acquisition
+  failures regardless of matching accuracy.
 - Model upgrades change the embedding space. Templates record `model_version`,
   and verification refuses to compare templates from a different model version
-  (HTTP 409) rather than silently producing meaningless scores.
+  (HTTP 409) rather than silently producing meaningless scores. Thresholds are
+  tuned for a specific model version and must be re-reviewed after an upgrade.
 
 ## References and verification
 
