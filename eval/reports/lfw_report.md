@@ -1,10 +1,10 @@
 # LFW 1:1 face verification report
 
-Generated: 2026-11-02 07:28 UTC
+Generated: 2026-11-02 07:54 UTC
 
 - Model: `face_detection_yunet_2023mar@8f2383e4+face_recognition_sface_2021dec@0ba9fbfa`
-- Git revision: `f74b5545ad1a3e59c177d142b68b39eeec491605`
-- Dataset images: `/workspace/facecheck/data/lfw_home/lfw_deepfunneled`
+- Git revision: `7634368f9b968336a1a69f7096c2b56be59f81bb`
+- Dataset images: `data/lfw_home/lfw_deepfunneled`
 - Threshold fitted on: `pairsDevTrain.txt`
 - Metrics reported on: `pairsDevTest.txt`
 
@@ -65,10 +65,10 @@ Averaging the k enrollment templates would lower the impostor score for a lucky 
 
 | Measurement | Mean | Median | p95 |
 | --- | --- | --- | --- |
-| Detect + align + embed (LFW 250px) | 8.55 ms | 7.95 ms | 11.47 ms |
-| Verification (two images + cosine) | 17.12 ms | 16.16 ms | 22.14 ms |
-| Detect + align + embed, 1280x720 (downscaled to 960px) | 14.53 ms | 14.15 ms | 16.93 ms |
-| Detect + align + embed, 4000x3000 (downscaled to 960px) | 20.75 ms | 19.96 ms | 23.52 ms |
+| Detect + align + embed (LFW 250px) | 8.56 ms | 8.10 ms | 10.82 ms |
+| Verification (two images + cosine) | 17.15 ms | 16.54 ms | 20.99 ms |
+| JPEG decode + detect + align + embed, 1280x720 (downscaled to 960px) | 19.73 ms | 18.85 ms | 23.89 ms |
+| JPEG decode + detect + align + embed, 4000x3000 (downscaled to 960px) | 73.90 ms | 71.14 ms | 91.79 ms |
 
 ## Environment
 
@@ -81,6 +81,7 @@ Averaging the k enrollment templates would lower the impostor score for a lucky 
 - detect_max_side: 960
 - min_face_size: 80
 - min_face_frac: 0.15
+- latency_benchmarks: JPEG decode + detect + align + embed for 720p and 12 MP
 
 ## Model files
 
@@ -92,5 +93,6 @@ Averaging the k enrollment templates would lower the impostor score for a lucky 
 - Each LFW pair is one enroll template and one probe; the score is cosine similarity of L2-normalized SFace embeddings.
 - Images are downscaled so the longest side is at most 960 px before detection, alignment, and embedding. A face must be at least the configured pixel minimum and at least the configured fraction of the frame's short side.
 - Pairs where either image fails the quality gate are skipped. FTA counts all skipped pairs; generalized FRR counts skipped genuine pairs as failures, so a detector that cannot acquire faces does not look good.
+- The 720p and 12 MP latency rows encode the synthetic frame as JPEG and time `imdecode` plus detect + align + embed, matching the upload path.
 - Confidence intervals are Wilson score intervals at 95%; the FAR bound uses the exact zero-event rule of three.
 - The production service enrolls 3-5 templates and takes the maximum cosine. That is conservative for FRR but optimistic for FAR, which this single-template benchmark cannot quantify.

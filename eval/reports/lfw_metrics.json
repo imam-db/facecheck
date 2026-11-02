@@ -1,15 +1,15 @@
 {
-  "generated_at": "2026-11-02 07:28 UTC",
-  "git_sha": "f74b5545ad1a3e59c177d142b68b39eeec491605",
+  "generated_at": "2026-11-02 07:54 UTC",
+  "git_sha": "7634368f9b968336a1a69f7096c2b56be59f81bb",
   "git_dirty": false,
   "model_version": "face_detection_yunet_2023mar@8f2383e4+face_recognition_sface_2021dec@0ba9fbfa",
   "model_sha256": {
     "face_detection_yunet_2023mar.onnx": "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
     "face_recognition_sface_2021dec.onnx": "0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79"
   },
-  "images_dir": "/workspace/facecheck/data/lfw_home/lfw_deepfunneled",
-  "train_pairs_file": "/workspace/facecheck/data/lfw_home/pairsDevTrain.txt",
-  "test_pairs_file": "/workspace/facecheck/data/lfw_home/pairsDevTest.txt",
+  "images_dir": "data/lfw_home/lfw_deepfunneled",
+  "train_pairs_file": "data/lfw_home/pairsDevTrain.txt",
+  "test_pairs_file": "data/lfw_home/pairsDevTest.txt",
   "far_target": 0.01,
   "default_threshold": 0.363,
   "train": {
@@ -230,36 +230,36 @@
   },
   "latency_ms": {
     "embed": {
-      "mean": 8.551089097582588,
-      "median": 7.9532064955856185,
-      "p95": 11.47353749911417,
-      "min": 6.778158000088297,
-      "max": 20.916515997669194,
+      "mean": 8.56068274030916,
+      "median": 8.095258501271019,
+      "p95": 10.818317097800895,
+      "min": 6.895272003021091,
+      "max": 17.04993299790658,
       "n": 1752
     },
     "pair": {
-      "mean": 17.123630254720307,
-      "median": 16.1614764983824,
-      "p95": 22.140006149493274,
-      "min": 13.846268004272133,
-      "max": 30.826286994852126,
+      "mean": 17.147635208763155,
+      "median": 16.537677998712752,
+      "p95": 20.987285998489824,
+      "min": 14.038509005331434,
+      "max": 30.827915004920214,
       "n": 848
     },
     "720p": {
-      "mean": 14.532056284744092,
-      "median": 14.154636999592185,
-      "p95": 16.932573699159548,
-      "min": 12.715753000520635,
-      "max": 17.093385999032762,
+      "mean": 19.72567599919525,
+      "median": 18.8480860015261,
+      "p95": 23.88549339957535,
+      "min": 17.812664998928085,
+      "max": 25.804279001022223,
       "n": 7,
       "pixels": 921600.0
     },
     "12mp": {
-      "mean": 20.749151999812707,
-      "median": 19.961036996392068,
-      "p95": 23.522167297051055,
-      "min": 19.056042001466267,
-      "max": 24.22592199582141,
+      "mean": 73.90195242935859,
+      "median": 71.14119300240418,
+      "p95": 91.79133190482388,
+      "min": 64.264878994436,
+      "max": 96.75831700587878,
       "n": 7,
       "pixels": 12000000.0
     }
@@ -273,6 +273,7 @@
     "numpy": "2.5.4",
     "detect_max_side": 960,
     "min_face_size": 80,
-    "min_face_frac": 0.15
+    "min_face_frac": 0.15,
+    "latency_benchmarks": "JPEG decode + detect + align + embed for 720p and 12 MP"
   }
 }

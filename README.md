@@ -10,9 +10,9 @@ verification, or manual review.
 The service is CPU-only, encrypts face templates at rest, requires recorded
 consent before enrollment, and uses the permissively licensed OpenCV Zoo models
 (YuNet + SFace) behind a small FastAPI API. On the LFW test split it reaches
-**0.9945 ROC AUC** and **8.5 ms mean detect-and-embed latency** per 250 px
-image; on a 12 MP frame the same pipeline takes **24.7 ms** on average after
-downscaling. See [evaluation](#evaluation) for the full protocol and bounds.
+**0.9945 ROC AUC** and **8.56 ms mean detect-and-embed latency** per 250 px
+image; a 12 MP JPEG takes **73.9 ms** end to end (decode, downscale, detect,
+and embed). See [evaluation](#evaluation) for the full protocol and bounds.
 
 ## Problem
 
@@ -368,10 +368,10 @@ python -m eval.run_lfw --limit 100 # balanced quick subset of each split
 | Generalized FRR 95% Wilson interval | 14.88% - 21.61% |
 | Train-fitted threshold at FAR <= 1% | **0.3003** |
 | Test metrics at 0.3003 | TPR 98.33%, FAR 0.93% (4 / 430), generalized FRR 17.80% |
-| Detect + align + embed, 250 px | 8.53 ms mean, 8.05 ms median, 10.83 ms p95 |
-| Verification, two 250 px images + cosine | 17.09 ms mean, 16.32 ms median, 21.40 ms p95 |
-| Detect + align + embed, 1280x720 | 16.83 ms mean, 15.86 ms median, 21.37 ms p95 |
-| Detect + align + embed, 4000x3000 (12 MP) | 24.73 ms mean, 23.37 ms median, 28.50 ms p95 |
+| Detect + align + embed, 250 px | 8.56 ms mean, 8.10 ms median, 10.82 ms p95 |
+| Verification, two 250 px images + cosine | 17.15 ms mean, 16.54 ms median, 20.99 ms p95 |
+| JPEG decode + detect + align + embed, 1280x720 | 19.73 ms mean, 18.85 ms median, 23.89 ms p95 |
+| JPEG decode + detect + align + embed, 4000x3000 (12 MP) | 73.90 ms mean, 71.14 ms median, 91.79 ms p95 |
 
 **Statistical honesty.** Zero false accepts in 430 impostor pairs does not mean
 FAR is zero. With 0 accepts in `n` trials the one-sided 95% upper bound is
