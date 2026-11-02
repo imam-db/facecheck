@@ -12,8 +12,12 @@ project was built, so the script uses two mirrors and verifies every download:
 
 Output layout::
 
+    data/lfw_home/pairsDevTrain.txt
     data/lfw_home/pairsDevTest.txt
     data/lfw_home/lfw_deepfunneled/<name>/<name>_0001.jpg
+
+``pairsDevTrain.txt`` is used only to fit the operating threshold; reported
+metrics come from ``pairsDevTest.txt``.
 
 Usage::
 
@@ -43,10 +47,16 @@ class RemoteFile:
     sha256: str
 
 
-PAIRS = RemoteFile(
+PAIRS_TEST = RemoteFile(
     filename="pairsDevTest.txt",
     url="https://raw.githubusercontent.com/AruniRC/resnet-face-pytorch/master/lfw/data/pairsDevTest.txt",
     sha256="7cb06600ea8b2814ac26e946201cdb304296262aad67d046a16a7ec85d0ff87c",
+)
+
+PAIRS_TRAIN = RemoteFile(
+    filename="pairsDevTrain.txt",
+    url="https://ndownloader.figshare.com/files/5976012",
+    sha256="1d454dada7dfeca0e7eab6f65dc4e97a6312d44cf142207be28d688be92aabfa",
 )
 
 IMAGES_ARCHIVE = RemoteFile(
@@ -154,7 +164,10 @@ def main(argv: list[str] | None = None) -> int:
     lfw_home = args.data_dir / "lfw_home"
     lfw_home.mkdir(parents=True, exist_ok=True)
 
-    pairs_path = download(PAIRS, lfw_home / PAIRS.filename, force=args.force)
+    pairs_path = download(PAIRS_TEST, lfw_home / PAIRS_TEST.filename, force=args.force)
+    train_pairs_path = download(
+        PAIRS_TRAIN, lfw_home / PAIRS_TRAIN.filename, force=args.force
+    )
 
     images_dir = lfw_home / "lfw_deepfunneled"
     image_count = len(list(images_dir.glob("*/*.jpg"))) if images_dir.is_dir() else 0
@@ -171,7 +184,20 @@ def main(argv: list[str] | None = None) -> int:
     declared = int(pair_lines[0])
     if len(pair_lines) != 2 * declared + 1:
         raise SystemExit(f"{pairs_path}: expected {2 * declared + 1} lines, got {len(pair_lines)}")
-    print(f"ready: {declared} matched + {declared} mismatched test pairs in {lfw_home}")
+
+    train_lines = [
+        line for line in train_pairs_path.read_text().splitlines() if line.strip()
+    ]
+    train_declared = int(train_lines[0])
+    if len(train_lines) != 2 * train_declared + 1:
+        raise SystemExit(
+            f"{train_pairs_path}: expected {2 * train_declared + 1} lines, "
+            f"got {len(train_lines)}"
+        )
+    print(
+        f"ready: {train_declared} matched + {train_declared} mismatched train pairs "
+        f"and {declared} matched + {declared} mismatched test pairs in {lfw_home}"
+    )
     return 0
 
 

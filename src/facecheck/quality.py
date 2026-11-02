@@ -16,6 +16,8 @@ INVALID_IMAGE = "invalid_image"
 class QualityError(ValueError):
     """Raised when an image cannot be used for enrollment or verification."""
 
+    code = "quality_error"
+
     def __init__(self, reason: str, message: str | None = None) -> None:
         self.reason = reason
         super().__init__(message or reason)
@@ -46,13 +48,17 @@ def select_face(
     faces: Sequence[FaceCandidate],
     *,
     min_face_size: int = 80,
+    image_min_side: float | None = None,
+    min_face_frac: float = 0.0,
 ) -> FaceCandidate:
     """Return the single usable face or raise :class:`QualityError`.
 
     The policy is deliberately strict: attendance verification is 1:1, so a
     frame containing zero faces, several faces, or a face smaller than
     ``min_face_size`` pixels on its shortest side is rejected rather than
-    guessed at.
+    guessed at. When ``image_min_side`` is provided, the face must also cover
+    at least ``min_face_frac`` of the image's shortest side, which keeps the
+    gate meaningful after the image is downscaled for detection.
     """
 
     if not faces:
@@ -71,5 +77,15 @@ def select_face(
             f"face is {face.width:.0f}x{face.height:.0f}px; "
             f"minimum side is {min_face_size}px",
         )
+
+    if image_min_side and min_face_frac > 0.0:
+        relative_minimum = min_face_frac * image_min_side
+        if face.min_side < relative_minimum:
+            raise QualityError(
+                FACE_TOO_SMALL,
+                f"face is {face.width:.0f}x{face.height:.0f}px; "
+                f"minimum is {min_face_frac:.0%} of the image's shortest side "
+                f"({relative_minimum:.0f}px)",
+            )
 
     return face

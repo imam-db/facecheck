@@ -75,6 +75,42 @@ def test_single_large_face_is_accepted() -> None:
     assert select_face([face], min_face_size=80) is face
 
 
+def test_relative_min_face_fraction_is_enforced() -> None:
+    face = _candidate(0, 0, 100, 100)
+    with pytest.raises(QualityError) as excinfo:
+        select_face(
+            [face], min_face_size=80, image_min_side=1000, min_face_frac=0.15
+        )
+    assert excinfo.value.reason == FACE_TOO_SMALL
+    assert "15%" in str(excinfo.value)
+
+    large_face = _candidate(0, 0, 160, 160)
+    assert (
+        select_face(
+            [large_face], min_face_size=80, image_min_side=1000, min_face_frac=0.15
+        )
+        is large_face
+    )
+
+
+def test_relative_fraction_is_ignored_without_image_size() -> None:
+    face = _candidate(0, 0, 100, 100)
+    assert select_face([face], min_face_size=80, min_face_frac=0.5) is face
+
+
+def test_pixel_limit_rejects_from_the_header() -> None:
+    data = png_bytes(solid_image(size=(100, 100)))
+    with pytest.raises(QualityError) as excinfo:
+        decode_image_bgr(data, max_pixels=5_000)
+    assert excinfo.value.reason == INVALID_IMAGE
+    assert "limit is 5000 pixels" in str(excinfo.value)
+
+
+def test_pixel_limit_accepts_small_image() -> None:
+    data = png_bytes(solid_image(size=(100, 100)))
+    assert decode_image_bgr(data, max_pixels=10_000).shape == (100, 100, 3)
+
+
 def test_candidate_min_side_uses_shortest_dimension() -> None:
     assert _candidate(0, 0, 200, 60).min_side == 60
 

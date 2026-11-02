@@ -1,18 +1,25 @@
 services:
   api:
     build: .
+    # Bind to loopback only. Put an authenticating reverse proxy in front for
+    # any non-local deployment.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - facecheck-data:/data
     environment:
       FACECHECK_DB_URL: sqlite:////data/facecheck.db
       FACECHECK_MATCH_THRESHOLD: ${FACECHECK_MATCH_THRESHOLD:-0.363}
+      # The service fails closed: both keys are required, with no defaults.
+      FACECHECK_API_KEY: ${FACECHECK_API_KEY:?set FACECHECK_API_KEY}
+      FACECHECK_TEMPLATE_KEY: ${FACECHECK_TEMPLATE_KEY:?set FACECHECK_TEMPLATE_KEY}
+      FACECHECK_DEV_MODE: ${FACECHECK_DEV_MODE:-false}
     restart: unless-stopped
 
   # Optional Postgres backend. Start with:
   #   docker compose --profile postgres up --build
   # and set FACECHECK_DB_URL=postgresql+psycopg://facecheck:facecheck@postgres:5432/facecheck
+  # The image installs the [postgres] extra, so psycopg is available.
   postgres:
     image: postgres:16-alpine
     profiles: ["postgres"]

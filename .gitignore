@@ -33,6 +33,8 @@ data/*.part
 data/.lfw_deepfunneled.tmp/
 eval/output/
 eval/reports/*.png
+!eval/reports/lfw_roc.png
+!eval/reports/lfw_det.png
 !eval/reports/.gitkeep
 
 # Local DB and runtime

@@ -8,19 +8,27 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# opencv-contrib-python-headless still needs libglib; it does not need libGL.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 curl \
+    && apt-get install -y --no-install-recommends libglib2.0-0 curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
-RUN pip install .
+RUN pip install ".[postgres]"
 
 COPY scripts ./scripts
 RUN python scripts/download_models.py --models-dir /app/models
 
-ENV FACECHECK_MODELS_DIR=/app/models \
+RUN useradd --create-home --uid 10001 facecheck \
+    && mkdir -p /data \
+    && chown -R facecheck:facecheck /app /data
+
+ENV HOME=/home/facecheck \
+    FACECHECK_MODELS_DIR=/app/models \
     FACECHECK_DB_URL=sqlite:////data/facecheck.db
+
+USER facecheck
 
 EXPOSE 8000
 
