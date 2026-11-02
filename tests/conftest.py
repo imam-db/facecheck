@@ -14,8 +14,10 @@ from facecheck.embeddings import EmbeddingResult
 from facecheck.quality import FACE_TOO_SMALL, INVALID_IMAGE, NO_FACE, QualityError
 from facecheck.similarity import l2_normalize
 
-TEST_API_KEY = "test-api-key"
-TEST_TEMPLATE_KEY = "ZGV2LW9ubHktZmFjZWNoZWNrLXRlbXBsYXRlLWtleSE="
+TEST_API_KEY = "test-api-key-7f3c9a2e5b1d4c60"
+TEST_TEMPLATE_KEY = (
+    "9c1f5e7a3b2d4c6e8f0a1b3c5d7e9f0a2b4c6d8e0f1a3b5c7d9e1f3a5b7c9d0e"
+)
 AUTH_HEADERS = {"X-API-Key": TEST_API_KEY}
 
 
@@ -81,6 +83,7 @@ def make_settings(tmp_path: Path, **overrides) -> Settings:
         "db_url": f"sqlite:///{tmp_path / 'facecheck-test.db'}",
         "embedding_dim": 3,
         "match_threshold": 0.363,
+        "dev_mode": True,
         "api_key": TEST_API_KEY,
         "template_key": TEST_TEMPLATE_KEY,
     }

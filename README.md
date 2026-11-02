@@ -119,12 +119,13 @@ python -m pip install -e ".[dev]"
 # Downloads ~39 MB of ONNX models into models/, verifying pinned SHA-256 digests
 python scripts/download_models.py
 
-# AES-GCM key for template encryption; required at startup
+# Both keys are required at startup: the service fails closed.
+export FACECHECK_API_KEY=$(
+  python -c "import secrets; print(secrets.token_urlsafe(32))"
+)
 export FACECHECK_TEMPLATE_KEY=$(
   python -c "import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
 )
-# Optional for local use; set a strong value for anything shared
-export FACECHECK_API_KEY=dev-api-key
 
 uvicorn facecheck.api:app --reload --port 8000
 ```
@@ -144,7 +145,7 @@ missing-model tests always run.
 
 ```bash
 API=http://127.0.0.1:8000
-KEY=dev-api-key
+KEY="$FACECHECK_API_KEY"
 
 # 1. Create a person with a consent record
 PERSON_ID=$(curl -s -X POST "$API/v1/persons" \
@@ -209,8 +210,12 @@ Use `--threshold` and `--models-dir` to override the defaults.
 | `GET` | `/healthz` | open | - | `{status}` |
 
 Errors use one envelope: `{"code": "...", "message": "...", "details": ...}`.
-Quality errors put the reason under `details.reason`; enrollment errors put
-per-image rejections under `details.reasons`. OpenAPI docs are at `/docs`.
+Request validation failures return HTTP 422 with `code=validation_error`; a
+template that cannot be decrypted (wrong or rotated key, or a pre-encryption
+row) returns HTTP 409 with `code=template_decrypt_failed` and asks for
+re-enrollment. Quality errors put the reason under `details.reason`; enrollment
+errors put per-image rejections under `details.reasons`. OpenAPI docs are at
+`/docs`.
 
 ### Configuration
 
@@ -231,12 +236,15 @@ variables or a local `.env` (see `.env.example`).
 | `FACECHECK_ENROLL_MIN_IMAGES` | `3` | Minimum images per enrollment |
 | `FACECHECK_ENROLL_MAX_IMAGES` | `5` | Maximum images per enrollment |
 | `FACECHECK_MAX_UPLOAD_BYTES` | `10485760` | Per-image upload limit |
-| `FACECHECK_API_KEY` | unset | If set, required as `X-API-Key` or `Authorization: Bearer` on every route except `/healthz` |
+| `FACECHECK_API_KEY` | required | Required as `X-API-Key` or `Authorization: Bearer` on every route except `/healthz` |
 | `FACECHECK_TEMPLATE_KEY` | required | AES-256 key as urlsafe base64 or 64 hex characters |
+| `FACECHECK_DEV_MODE` | `false` | Allow the public placeholder keys for local use; keys must still be set |
 
-The service refuses to start without `FACECHECK_TEMPLATE_KEY`. An unset
-`FACECHECK_API_KEY` is a local-development mode: tests set a key, and the
-Docker compose file injects a placeholder key.
+The service **fails closed**. Startup is refused unless both `FACECHECK_API_KEY`
+and `FACECHECK_TEMPLATE_KEY` are non-empty. When `FACECHECK_DEV_MODE=false`,
+the committed placeholder values (`dev-api-key` and the example template key)
+are also refused. `FACECHECK_DEV_MODE=true` relaxes only the placeholder ban,
+not the requirement that the keys exist. Never enable it for a shared instance.
 
 ## Privacy and security
 
@@ -293,15 +301,34 @@ under Indonesia's UU PDP or similar regimes.
 ## Docker
 
 ```bash
+# compose has no key defaults and refuses to render without both
+export FACECHECK_API_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+export FACECHECK_TEMPLATE_KEY="$(
+  python -c 'import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())'
+)"
 docker compose up --build
 # API on http://127.0.0.1:8000, SQLite volume mounted at /data
 ```
 
-The compose file binds the port to loopback and injects placeholder API and
-template keys. Replace both before exposing the service. The image installs
+The compose file binds the port to loopback and requires both keys from the
+environment (`${FACECHECK_API_KEY:?…}` and `${FACECHECK_TEMPLATE_KEY:?…}`); it
+has no placeholder defaults. The image installs
 `opencv-contrib-python-headless`, the `[postgres]` extra (so `psycopg` is
 available), downloads and verifies the models at build time, and runs as a
 non-root user.
+
+Databases created before the consent columns were added are **not migrated
+automatically**. Startup fails with an incompatibility message if `persons`
+still has `display_name` or is missing `consent_version` / `consent_at`. Delete
+the old SQLite file or Docker volume and recreate it:
+
+```bash
+docker compose down -v   # removes the facecheck-data volume
+docker compose up --build
+```
+
+Re-enrollment is required because templates from the old schema cannot be
+trusted.
 
 ```bash
 # Optional Postgres profile; also point FACECHECK_DB_URL at the server

@@ -18,8 +18,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from sqlalchemy import ForeignKey, String, create_engine, event, select
+from sqlalchemy import ForeignKey, String, create_engine, event, inspect, select
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import (
@@ -39,6 +40,27 @@ KEY_BYTES = 32
 
 class DuplicateExternalIdError(ValueError):
     """Raised when an external_id is already used by another person."""
+
+
+class TemplateDecryptError(RuntimeError):
+    """Raised when a stored template cannot be decrypted.
+
+    This usually means the template key changed or the row predates encrypted
+    storage; either way the person must re-enroll.
+    """
+
+    def __init__(self, message: str, *, details: object | None = None) -> None:
+        self.message = message
+        self.details = details
+        super().__init__(message)
+
+
+class SchemaMigrationError(RuntimeError):
+    """Raised when the database predates the current schema."""
+
+
+REQUIRED_PERSON_COLUMNS = frozenset({"consent_version", "consent_at"})
+FORBIDDEN_PERSON_COLUMNS = frozenset({"display_name"})
 
 
 def _utcnow() -> datetime:
@@ -200,12 +222,46 @@ def build_engine(db_url: str) -> Engine:
     return engine
 
 
+def check_schema_compatibility(engine: Engine) -> None:
+    """Refuse to serve a database that predates the current schema.
+
+    v0 databases used ``display_name`` and had no consent columns. They are not
+    migrated automatically: mixing an old template table with the new model
+    would either fail at runtime or silently serve rows without consent.
+    """
+
+    inspector = inspect(engine)
+    if not inspector.has_table("persons"):
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("persons")}
+    forbidden = columns & FORBIDDEN_PERSON_COLUMNS
+    missing = REQUIRED_PERSON_COLUMNS - columns
+    if not forbidden and not missing:
+        return
+
+    problems: list[str] = []
+    if forbidden:
+        problems.append("unexpected column(s) " + ", ".join(sorted(forbidden)))
+    if missing:
+        problems.append("missing column(s) " + ", ".join(sorted(missing)))
+
+    raise SchemaMigrationError(
+        "incompatible database schema: persons table has "
+        + "; ".join(problems)
+        + ". This database predates the current version and is not migrated "
+        "automatically. Delete the old SQLite file (or Docker volume) and "
+        "recreate the database, then re-enroll people."
+    )
+
+
 class Storage:
     """Thin repository layer; one short-lived session per operation."""
 
     def __init__(self, db_url: str, *, template_key: str | bytes | None) -> None:
         self._key = parse_template_key(template_key)
         self.engine = build_engine(db_url)
+        check_schema_compatibility(self.engine)
         self._session_factory = sessionmaker(
             bind=self.engine, expire_on_commit=False, class_=Session
         )
@@ -263,15 +319,29 @@ class Storage:
                 StoredTemplate(
                     id=row.id,
                     person_id=row.person_id,
-                    embedding=decrypt_embedding(
-                        self._key, row.person_id, row.id, row.embedding
-                    ),
+                    embedding=self._decrypt_row(row),
                     dim=row.dim,
                     model_version=row.model_version,
                     created_at=row.created_at,
                 )
                 for row in rows
             ]
+
+    def _decrypt_row(self, row: Template) -> bytes:
+        try:
+            return decrypt_embedding(self._key, row.person_id, row.id, row.embedding)
+        except InvalidTag as exc:
+            raise TemplateDecryptError(
+                "stored face template could not be decrypted: the template key "
+                "does not match. Re-enroll the person.",
+                details={"template_id": row.id, "reason": "invalid_key"},
+            ) from exc
+        except ValueError as exc:
+            raise TemplateDecryptError(
+                "stored face template is not encrypted or is malformed. "
+                "Re-enroll the person.",
+                details={"template_id": row.id, "reason": "legacy_plaintext"},
+            ) from exc
 
     def replace_templates(
         self,

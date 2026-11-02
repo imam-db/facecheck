@@ -13,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from facecheck.api import create_app
+from facecheck.config import ConfigurationError
 from facecheck.embeddings import EmbedderError, ModelNotFoundError
 from facecheck.service import FaceVerificationService
 from tests.conftest import (
@@ -31,6 +32,10 @@ CONSENT = {
     "consent_version": "2026-11",
     "consent_at": "2026-11-01T09:00:00Z",
 }
+
+PLACEHOLDER_API_KEY = "dev-api-key"
+PLACEHOLDER_TEMPLATE_KEY = "ZGV2LW9ubHktZmFjZWNoZWNrLXRlbXBsYXRlLWtleSE="
+ALT_TEMPLATE_KEY = "a1b2c3d4e5f60718293a4b5c6d7e8f90" * 2
 
 
 def _enroll_images(count: int = 3) -> list[tuple[str, tuple[str, bytes, str]]]:
@@ -107,11 +112,91 @@ def test_api_key_accepts_header_and_bearer(settings) -> None:
         assert anonymous.get("/v1/meta", headers=wrong).status_code == 401
 
 
-def test_unset_api_key_opens_local_development_mode(tmp_path: Path) -> None:
-    settings = make_settings(tmp_path, api_key=None)
+@pytest.mark.parametrize("overrides", [{"api_key": None}, {"template_key": None}])
+def test_startup_refuses_without_keys(tmp_path: Path, overrides: dict) -> None:
+    settings = make_settings(tmp_path, **overrides)
+    app = create_app(settings, embedder=FakeEmbedder())
+    with pytest.raises(ConfigurationError, match="not set"), TestClient(app):
+        pass
+
+
+def test_startup_refuses_placeholders_in_production(tmp_path: Path) -> None:
+    settings = make_settings(
+        tmp_path,
+        dev_mode=False,
+        api_key=PLACEHOLDER_API_KEY,
+        template_key=PLACEHOLDER_TEMPLATE_KEY,
+    )
+    app = create_app(settings, embedder=FakeEmbedder())
+    with pytest.raises(ConfigurationError, match="placeholder"), TestClient(app):
+        pass
+
+
+def test_dev_mode_allows_placeholder_keys(tmp_path: Path) -> None:
+    settings = make_settings(
+        tmp_path,
+        dev_mode=True,
+        api_key=PLACEHOLDER_API_KEY,
+        template_key=PLACEHOLDER_TEMPLATE_KEY,
+    )
+    app = create_app(settings, embedder=FakeEmbedder())
+    with TestClient(app, headers={"X-API-Key": PLACEHOLDER_API_KEY}) as client:
+        assert client.get("/v1/meta").status_code == 200
+
+
+def test_startup_accepts_strong_keys_in_production(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path, dev_mode=False)
+    app = create_app(settings, embedder=FakeEmbedder())
+    with TestClient(app, headers=AUTH_HEADERS) as client:
+        assert client.get("/v1/meta").status_code == 200
+
+
+def test_non_ascii_api_key_is_unauthorized_not_server_error(settings) -> None:
     app = create_app(settings, embedder=FakeEmbedder())
     with TestClient(app) as anonymous:
-        assert anonymous.get("/v1/meta").status_code == 200
+        utf8 = anonymous.get(
+            "/v1/meta", headers={"X-API-Key": "café-key".encode()}
+        )
+        assert utf8.status_code == 401
+        assert utf8.json()["code"] == "unauthorized"
+
+        latin1 = anonymous.get("/v1/meta", headers={"X-API-Key": b"caf\xe9-key"})
+        assert latin1.status_code == 401
+        assert latin1.json()["code"] == "unauthorized"
+
+
+def test_validation_error_uses_unified_envelope(client: TestClient) -> None:
+    response = client.post("/v1/persons", json={"external_id": "missing-consent"})
+    assert response.status_code == 422
+    body = response.json()
+    assert body["code"] == "validation_error"
+    assert isinstance(body["message"], str) and body["message"]
+    assert isinstance(body["details"], list) and body["details"]
+
+
+def test_template_key_change_returns_409(tmp_path: Path) -> None:
+    first = make_settings(tmp_path)
+    first_app = create_app(first, embedder=FakeEmbedder())
+    with TestClient(first_app, headers=AUTH_HEADERS) as client:
+        person_id = _create_person(client)
+        enrolled = client.post(
+            f"/v1/persons/{person_id}/enroll", files=_enroll_images(3)
+        )
+        assert enrolled.status_code == 200, enrolled.text
+
+    second = make_settings(tmp_path, template_key=ALT_TEMPLATE_KEY)
+    second_app = create_app(second, embedder=FakeEmbedder())
+    with TestClient(second_app, headers=AUTH_HEADERS) as client:
+        response = client.post(
+            f"/v1/persons/{person_id}/verify",
+            files={"file": ("probe.png", png_bytes(image_with_marker()))},
+        )
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["code"] == "template_decrypt_failed"
+    assert "re-enroll" in body["message"].lower()
+    assert body["details"]["reason"] == "invalid_key"
 
 
 def test_create_person_records_consent(client: TestClient) -> None:

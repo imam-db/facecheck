@@ -10,9 +10,10 @@ services:
     environment:
       FACECHECK_DB_URL: sqlite:////data/facecheck.db
       FACECHECK_MATCH_THRESHOLD: ${FACECHECK_MATCH_THRESHOLD:-0.363}
-      # Placeholder values for local use only. Replace both before deployment.
-      FACECHECK_API_KEY: ${FACECHECK_API_KEY:-dev-api-key}
-      FACECHECK_TEMPLATE_KEY: ${FACECHECK_TEMPLATE_KEY:-ZGV2LW9ubHktZmFjZWNoZWNrLXRlbXBsYXRlLWtleSE=}
+      # The service fails closed: both keys are required, with no defaults.
+      FACECHECK_API_KEY: ${FACECHECK_API_KEY:?set FACECHECK_API_KEY}
+      FACECHECK_TEMPLATE_KEY: ${FACECHECK_TEMPLATE_KEY:?set FACECHECK_TEMPLATE_KEY}
+      FACECHECK_DEV_MODE: ${FACECHECK_DEV_MODE:-false}
     restart: unless-stopped
 
   # Optional Postgres backend. Start with:

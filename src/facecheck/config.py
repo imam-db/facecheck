@@ -15,6 +15,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 DEFAULT_DETECTOR_FILE = "face_detection_yunet_2023mar.onnx"
 DEFAULT_RECOGNIZER_FILE = "face_recognition_sface_2021dec.onnx"
 
+# Values committed to this repository for local experiments. They are public,
+# so a production process must never start with them.
+PLACEHOLDER_API_KEYS = frozenset({"dev-api-key"})
+PLACEHOLDER_TEMPLATE_KEYS = frozenset({"ZGV2LW9ubHktZmFjZWNoZWNrLXRlbXBsYXRlLWtleSE="})
+
+
+class ConfigurationError(RuntimeError):
+    """Raised when the process is configured in a way that is unsafe to serve."""
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -43,6 +52,7 @@ class Settings(BaseSettings):
     enroll_max_images: int = Field(default=5, ge=1)
     max_upload_bytes: int = Field(default=10 * 1024 * 1024, ge=1)
 
+    dev_mode: bool = False
     api_key: str | None = None
     template_key: str | None = None
 
@@ -59,6 +69,40 @@ class Settings(BaseSettings):
         if self.enroll_threshold is not None:
             return self.enroll_threshold
         return self.match_threshold
+
+
+def validate_startup_settings(settings: Settings) -> None:
+    """Fail closed unless the process has usable authentication secrets.
+
+    Keys must always be set. ``FACECHECK_DEV_MODE=true`` only relaxes the ban
+    on the public placeholder values, so local runs can keep using them while a
+    production process still refuses to serve.
+    """
+
+    api_key = (settings.api_key or "").strip()
+    template_key = (settings.template_key or "").strip()
+    problems: list[str] = []
+
+    if not api_key:
+        problems.append("FACECHECK_API_KEY is not set")
+    elif not settings.dev_mode and api_key in PLACEHOLDER_API_KEYS:
+        problems.append(
+            "FACECHECK_API_KEY is a public development placeholder; set a strong key"
+        )
+
+    if not template_key:
+        problems.append("FACECHECK_TEMPLATE_KEY is not set")
+    elif not settings.dev_mode and template_key in PLACEHOLDER_TEMPLATE_KEYS:
+        problems.append(
+            "FACECHECK_TEMPLATE_KEY is a public development placeholder; generate a new key"
+        )
+
+    if problems:
+        raise ConfigurationError(
+            "refusing to start: "
+            + "; ".join(problems)
+            + ". Set both keys, or set FACECHECK_DEV_MODE=true for local use only"
+        )
 
 
 @lru_cache

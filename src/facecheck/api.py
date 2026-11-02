@@ -9,11 +9,13 @@ from typing import Annotated
 
 import numpy as np
 from fastapi import FastAPI, File, Request, Response, UploadFile
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from facecheck import __version__
-from facecheck.config import Settings, get_settings
+from facecheck.config import Settings, get_settings, validate_startup_settings
 from facecheck.embeddings import (
     EmbedderError,
     FaceEmbedder,
@@ -26,7 +28,7 @@ from facecheck.service import (
     FaceVerificationService,
     ServiceError,
 )
-from facecheck.storage import Storage
+from facecheck.storage import Storage, TemplateDecryptError
 
 
 class PersonCreate(BaseModel):
@@ -87,6 +89,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        validate_startup_settings(settings)
         store = storage or Storage(settings.db_url, template_key=settings.template_key)
         embed = embedder or build_embedder(settings)
         app.state.service = FaceVerificationService(
@@ -117,7 +120,9 @@ def create_app(
             if scheme.lower() == "bearer":
                 provided = token
 
-        if not provided or not hmac.compare_digest(provided, settings.api_key):
+        if not provided or not hmac.compare_digest(
+            provided.encode("utf-8"), (settings.api_key or "").encode("utf-8")
+        ):
             return _error(
                 401,
                 "unauthorized",
@@ -128,6 +133,23 @@ def create_app(
     @app.exception_handler(ServiceError)
     async def _service_error(_request: Request, exc: ServiceError) -> JSONResponse:
         return _error(exc.status_code, exc.code, exc.message, exc.details)
+
+    @app.exception_handler(TemplateDecryptError)
+    async def _template_decrypt_error(
+        _request: Request, exc: TemplateDecryptError
+    ) -> JSONResponse:
+        return _error(409, "template_decrypt_failed", str(exc), exc.details)
+
+    @app.exception_handler(RequestValidationError)
+    async def _validation_error(
+        _request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        return _error(
+            422,
+            "validation_error",
+            "request validation failed",
+            jsonable_encoder(exc.errors()),
+        )
 
     @app.exception_handler(QualityError)
     async def _quality_error(_request: Request, exc: QualityError) -> JSONResponse:

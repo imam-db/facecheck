@@ -9,11 +9,12 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from cryptography.exceptions import InvalidTag
 
 from facecheck.storage import (
     ENVELOPE_PREFIX,
+    SchemaMigrationError,
     Storage,
+    TemplateDecryptError,
     embedding_to_bytes,
     parse_template_key,
 )
@@ -75,9 +76,62 @@ def test_decryption_requires_the_same_key(tmp_path: Path) -> None:
 
     other_key = base64.urlsafe_b64encode(b"x" * 32).decode()
     other = _storage(db_path, key=other_key)
-    with pytest.raises(InvalidTag):
+    with pytest.raises(TemplateDecryptError) as excinfo:
         other.list_templates(person.id)
+    assert excinfo.value.details["reason"] == "invalid_key"
+    assert excinfo.value.details["template_id"]
+    assert "re-enroll" in str(excinfo.value).lower()
     other.close()
+
+
+def test_legacy_plaintext_template_is_a_decrypt_error(tmp_path: Path) -> None:
+    db_path = tmp_path / "legacy.db"
+    storage = _storage(db_path)
+    person = storage.create_person()
+    vector = _embedding()
+    storage.replace_templates(person.id, [vector], model_version="fake_v1")
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("UPDATE templates SET embedding = ?", (embedding_to_bytes(vector),))
+        connection.commit()
+
+    with pytest.raises(TemplateDecryptError) as excinfo:
+        storage.list_templates(person.id)
+    assert excinfo.value.details["reason"] == "legacy_plaintext"
+    storage.close()
+
+
+def test_startup_rejects_old_schema_with_display_name(tmp_path: Path) -> None:
+    db_path = tmp_path / "v0.db"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "CREATE TABLE persons ("
+            "id TEXT PRIMARY KEY, external_id TEXT, display_name TEXT, "
+            "consent_version TEXT, consent_at DATETIME, created_at DATETIME)"
+        )
+        connection.commit()
+
+    with pytest.raises(SchemaMigrationError, match="display_name"):
+        _storage(db_path)
+
+
+def test_startup_rejects_schema_without_consent_columns(tmp_path: Path) -> None:
+    db_path = tmp_path / "no-consent.db"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "CREATE TABLE persons ("
+            "id TEXT PRIMARY KEY, external_id TEXT, created_at DATETIME)"
+        )
+        connection.commit()
+
+    with pytest.raises(SchemaMigrationError, match="consent_version"):
+        _storage(db_path)
+
+
+def test_startup_accepts_current_schema(tmp_path: Path) -> None:
+    storage = _storage(tmp_path / "current.db")
+    assert storage.get_person("missing") is None
+    storage.close()
 
 
 def test_consent_fields_round_trip(tmp_path: Path) -> None:
