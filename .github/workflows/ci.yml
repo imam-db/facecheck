@@ -43,7 +43,6 @@ jobs:
 
       - name: Download and verify models
         run: python scripts/download_models.py
-        continue-on-error: true
 
       - name: Test
         run: pytest -v

@@ -49,3 +49,9 @@ data/facecheck.db
 
 # Docker
 docker-compose.override.yml
+# Extra LFW / dataset leftovers under data/
+data/*.txt
+data/*.csv
+data/*README*
+data/pairs*
+!data/.gitkeep
