@@ -14,6 +14,10 @@ from facecheck.embeddings import EmbeddingResult
 from facecheck.quality import FACE_TOO_SMALL, INVALID_IMAGE, NO_FACE, QualityError
 from facecheck.similarity import l2_normalize
 
+TEST_API_KEY = "test-api-key"
+TEST_TEMPLATE_KEY = "ZGV2LW9ubHktZmFjZWNoZWNrLXRlbXBsYXRlLWtleSE="
+AUTH_HEADERS = {"X-API-Key": TEST_API_KEY}
+
 
 def models_available() -> bool:
     settings = Settings(_env_file=None)
@@ -77,6 +81,8 @@ def make_settings(tmp_path: Path, **overrides) -> Settings:
         "db_url": f"sqlite:///{tmp_path / 'facecheck-test.db'}",
         "embedding_dim": 3,
         "match_threshold": 0.363,
+        "api_key": TEST_API_KEY,
+        "template_key": TEST_TEMPLATE_KEY,
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)
@@ -95,5 +101,5 @@ def fake_embedder() -> FakeEmbedder:
 @pytest.fixture
 def client(settings: Settings, fake_embedder: FakeEmbedder):
     app = create_app(settings, embedder=fake_embedder)
-    with TestClient(app) as test_client:
+    with TestClient(app, headers=AUTH_HEADERS) as test_client:
         yield test_client
