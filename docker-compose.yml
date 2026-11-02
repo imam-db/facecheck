@@ -1,0 +1,34 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - facecheck-data:/data
+    environment:
+      FACECHECK_DB_URL: sqlite:////data/facecheck.db
+      FACECHECK_MATCH_THRESHOLD: ${FACECHECK_MATCH_THRESHOLD:-0.363}
+    restart: unless-stopped
+
+  # Optional Postgres backend. Start with:
+  #   docker compose --profile postgres up --build
+  # and set FACECHECK_DB_URL=postgresql+psycopg://facecheck:facecheck@postgres:5432/facecheck
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_USER: facecheck
+      POSTGRES_PASSWORD: facecheck
+      POSTGRES_DB: facecheck
+    volumes:
+      - facecheck-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U facecheck -d facecheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  facecheck-data:
+  facecheck-postgres:

@@ -1,0 +1,130 @@
+{
+  "generated_at": "2026-11-02 06:52 UTC",
+  "model_version": "face_detection_yunet_2023mar+face_recognition_sface_2021dec",
+  "dataset": "LFW official test pairs (pairsDevTest.txt), 1000 pairs",
+  "pairs_total": 1000,
+  "pairs_used": 848,
+  "pairs_skipped": 152,
+  "skipped_reasons": {
+    "multiple_faces": 93,
+    "face_too_small": 43,
+    "no_face": 16
+  },
+  "positives": 418,
+  "negatives": 430,
+  "roc_auc": 0.9944586625125181,
+  "eer": 0.01767553132302216,
+  "eer_threshold": 0.2872065305709839,
+  "recommended_threshold": 0.31002435088157654,
+  "recommended_threshold_basis": "FAR <= 1%",
+  "youden_threshold": 0.3506479859352112,
+  "youden_index": 0.9832535885167464,
+  "default_threshold": 0.363,
+  "production_metrics": {
+    "threshold": 0.363,
+    "tpr": 0.9808612440191388,
+    "far": 0.0,
+    "frr": 0.019138755980861233,
+    "accuracy": 0.9905660377358491
+  },
+  "max_impostor_score": 0.3363327980041504,
+  "min_genuine_score": -0.04012429341673851,
+  "operating_points": [
+    {
+      "threshold": 0.287207,
+      "tpr": 0.9832535885167464,
+      "far": 0.01627906976744186,
+      "frr": 0.01674641148325362,
+      "accuracy": 0.9834905660377359
+    },
+    {
+      "threshold": 0.3,
+      "tpr": 0.9832535885167464,
+      "far": 0.011627906976744186,
+      "frr": 0.01674641148325362,
+      "accuracy": 0.9858490566037735
+    },
+    {
+      "threshold": 0.310024,
+      "tpr": 0.9832535885167464,
+      "far": 0.009302325581395349,
+      "frr": 0.01674641148325362,
+      "accuracy": 0.9870283018867925
+    },
+    {
+      "threshold": 0.350648,
+      "tpr": 0.9808612440191388,
+      "far": 0.0,
+      "frr": 0.019138755980861233,
+      "accuracy": 0.9905660377358491
+    },
+    {
+      "threshold": 0.363,
+      "tpr": 0.9808612440191388,
+      "far": 0.0,
+      "frr": 0.019138755980861233,
+      "accuracy": 0.9905660377358491
+    },
+    {
+      "threshold": 0.4,
+      "tpr": 0.9760765550239234,
+      "far": 0.0,
+      "frr": 0.02392344497607657,
+      "accuracy": 0.9882075471698113
+    },
+    {
+      "threshold": 0.45,
+      "tpr": 0.9688995215311005,
+      "far": 0.0,
+      "frr": 0.031100478468899517,
+      "accuracy": 0.9846698113207547
+    },
+    {
+      "threshold": 0.5,
+      "tpr": 0.9401913875598086,
+      "far": 0.0,
+      "frr": 0.05980861244019142,
+      "accuracy": 0.9705188679245284
+    }
+  ],
+  "score_stats": {
+    "same person": {
+      "mean": 0.66610596872171,
+      "median": 0.6765313744544983,
+      "std": 0.1194763595603676,
+      "n": 418.0
+    },
+    "different person": {
+      "mean": 0.08261472870261398,
+      "median": 0.07749517634510994,
+      "std": 0.09569475401204375,
+      "n": 430.0
+    }
+  },
+  "latency_ms": {
+    "embed": {
+      "mean": 8.61701329106267,
+      "median": 7.953239502967335,
+      "p95": 11.117377101254531,
+      "min": 6.868292002764065,
+      "max": 20.93553300073836,
+      "n": 1752
+    },
+    "pair": {
+      "mean": 17.26777732778399,
+      "median": 16.217701500863768,
+      "p95": 21.763533298144466,
+      "min": 14.045871001144405,
+      "max": 32.6003110021702,
+      "n": 848
+    }
+  },
+  "environment": {
+    "platform": "Linux-6.12.94+-x86_64-with-glibc2.41",
+    "processor": "unknown",
+    "cpu_count": 8,
+    "python": "3.13.5",
+    "opencv": "4.14.0",
+    "numpy": "2.5.4"
+  }
+}
