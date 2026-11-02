@@ -28,6 +28,9 @@ data/lfw/
 data/lfw_home/
 data/*.tgz
 data/*.tar*
+data/*.zip
+data/*.part
+data/.lfw_deepfunneled.tmp/
 eval/output/
 eval/reports/*.png
 !eval/reports/.gitkeep
