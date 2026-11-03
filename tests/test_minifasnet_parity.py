@@ -6,6 +6,11 @@ float32 inputs stored in ``tests/fixtures/minifasnet_parity.json`` and compare
 ONNX output against the PyTorch logits recorded by
 ``scripts/export_minifasnet_onnx.py``, so torch is not needed here.
 
+Both ``cv2.dnn`` and ``onnxruntime`` are exercised when available. ``cv2`` is a
+hard runtime dependency, so ``cv2.dnn`` always runs; ``onnxruntime`` is only an
+export/development dependency, so its parametrization skips cleanly when the
+package is not installed.
+
 The models emit **3 logits** per 80x80 crop. In the upstream Minivision
 convention label index ``1`` is the real / bona-fide class. Inputs are raw BGR
 floats in [0, 255]; do not divide by 255.
@@ -45,19 +50,23 @@ def _models_dir() -> Path:
     return Settings(_env_file=None).models_dir
 
 
-def _detect_backend() -> str | None:
+def _has_onnxruntime() -> bool:
     try:
         import onnxruntime  # noqa: F401
     except ImportError:
-        pass
-    else:
-        return "onnxruntime"
+        return False
+    return True
 
-    try:
-        import cv2
-    except ImportError:
-        return None
-    return "cv2.dnn" if hasattr(cv2, "dnn") else None
+
+BACKENDS = [
+    "cv2.dnn",
+    pytest.param(
+        "onnxruntime",
+        marks=pytest.mark.skipif(
+            not _has_onnxruntime(), reason="onnxruntime is not installed"
+        ),
+    ),
+]
 
 
 def _missing_models() -> list[str]:
@@ -118,16 +127,9 @@ def _decode_input(case: dict[str, Any]) -> np.ndarray:
     return np.frombuffer(raw, dtype=dtype).reshape(shape).astype(np.float32, copy=False)
 
 
-@pytest.fixture(scope="module")
-def backend() -> str:
-    kind = _detect_backend()
-    if kind is None:
-        pytest.skip("neither onnxruntime nor cv2.dnn is available to run ONNX")
-    return kind
-
-
 @requires_models
 @pytest.mark.parametrize("model_name", MODEL_NAMES)
+@pytest.mark.parametrize("backend", BACKENDS)
 def test_minifasnet_matches_pytorch_reference(model_name: str, backend: str) -> None:
     entry: dict[str, Any] = REFERENCE["models"][model_name]
     assert float(entry["max_abs_diff"]) < ORT_TOLERANCE

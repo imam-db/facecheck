@@ -16,8 +16,9 @@ storage behavior changes in this step.
 
 ## Decision
 
-Use the MiniFASNet models from minivision-ai/Silent-Face-Anti-Spoofing
-(Apache-2.0), exported to fixed-shape ONNX:
+Use the MiniFASNet models from minivision-ai/Silent-Face-Anti-Spoofing at
+commit `b6d5f04ad78778917853b25c778acef6d5626d15` (Apache-2.0), exported to
+fixed-shape ONNX:
 
 - `2.7_80x80_MiniFASNetV2.onnx` from `2.7_80x80_MiniFASNetV2.pth` (scale 2.7)
 - `4_0_0_80x80_MiniFASNetV1SE.onnx` from `4_0_0_80x80_MiniFASNetV1SE.pth`
@@ -29,14 +30,25 @@ Details:
   `logits` of shape `1x3`, exported at opset 12.
 - **Raw pixel gotcha.** The upstream pipeline commented out `div(255)`, so the
   models expect raw BGR floats in `[0, 255]`. There is no mean/std
-  normalization. Feeding `[0, 1]` values silently degrades outputs.
+  normalization. Dividing by 255 drives every face toward the attack classes,
+  so the real probability collapses (below `0.1` on the golden cases) and every
+  genuine face is rejected.
+- **Channel-order gotcha.** Feeding RGB where the model expects BGR is
+  fail-open: on the golden spoof cases the swapped crop scores more than `0.5`
+  higher in real probability than the correct crop, so attacks are accepted.
+  The runtime must keep the decode order intact.
 - Index `1` of the 3 logits is the real / bona-fide class; indices `0` and `2`
-  are attack classes.
+  are attack classes. Softmax each model, then average index `1` across the two
+  models.
 - The architecture is vendored in `scripts/_minifasnet_arch.py`; only the
-  `.pth` files are read from the Silent-Face clone.
+  `.pth` files are read from the Silent-Face clone. The export verifies the
+  pinned `.pth` SHA-256 before loading.
 - Exported `.onnx` files are published as GitHub release assets under the tag
   `models-minifasnet-v1` and are not committed. `scripts/model_checksums.json`
-  pins their SHA-256.
+  pins their SHA-256 and byte sizes. The release asset digest is authoritative:
+  re-exports with a different torch version may differ in bytes.
+- Both MiniFASNet entries are required. `scripts/download_models.py` verifies
+  them like YuNet and SFace, and CI fails if the download fails.
 - PyTorch, ONNX, and ONNX Runtime live in the `export` optional-dependency
   group only. They are not runtime dependencies.
 
@@ -46,16 +58,36 @@ Positive:
 
 - PAD model artifacts are reproducible offline and verified against PyTorch at
   export time (`max_abs_diff < 1e-4`) and replayable in tests without torch.
+- Semantic goldens captured from consented images outside the repository catch
+  preprocessing regressions that graph parity cannot.
 - No change to the v0 FastAPI surface or storage schema.
 - Permissive code and model-file license (Apache-2.0).
 
 Negative / open risks:
 
-- The release `models-minifasnet-v1` does not exist yet; Imam must create it
-  and upload both ONNX files before `download_models.py` can fetch them.
 - Training-data provenance for the upstream weights is undocumented. As with
   SFace, Apache-2.0 on the weights is not evidence of commercial clearance.
 - No spoof-vs-genuine evaluation exists yet. Accuracy on the actual device
   fleet, printed photos, and screen replays is unmeasured.
 - This ADR only prepares the artifact; threshold selection and integration into
   the verification flow are separate, future decisions.
+
+## Carry into PR 2
+
+The integration PR must not treat the export as a drop-in detector. The
+following notes are carry-over requirements:
+
+- Port upstream `CropImage` verbatim: clamp the scale to fit, shift the box
+  inside the frame (never pad), slice inclusively (`right_bottom + 1`), and use
+  `cv2.resize` with `INTER_LINEAR`.
+- Crop from the full-resolution decode, mapping the YuNet box out of the
+  960-pixel detection coordinates.
+- The upstream PAD box convention differs from RetinaFace's; calibrate our own
+  threshold instead of reusing upstream numbers.
+- Softmax each model independently, then average the index-`1` probabilities.
+- Run PAD only after the face gate passes; on noise inputs the scores are about
+  `0.99` real, so a PAD score without a detected face is meaningless.
+- Fail closed at startup when liveness mode is not `off` and the PAD models are
+  missing.
+- Log the crop aspect ratio; the upstream models were trained on roughly 3:4
+  boxes.

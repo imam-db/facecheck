@@ -1,9 +1,14 @@
 """Vendored MiniFASNet architecture for offline ONNX export.
 
-This is a cleaned copy of ``src/model_lib/MiniFASNet.py`` from
-minivision-ai/Silent-Face-Anti-Spoofing (Copyright 2020 Minivision), licensed
-under the Apache License 2.0. See ``third_party/Silent-Face-Anti-Spoofing.LICENSE``
-and the repository-root ``NOTICE``.
+Modified from ``src/model_lib/MiniFASNet.py`` in
+minivision-ai/Silent-Face-Anti-Spoofing at commit
+``b6d5f04ad78778917853b25c778acef6d5626d15`` (Copyright 2020 Minivision),
+licensed under the Apache License 2.0. See
+``third_party/Silent-Face-Anti-Spoofing.LICENSE`` and the repository-root
+``NOTICE``.
+
+Apache License 2.0 section 4(b) modification notice: Modified from upstream
+b6d5f04: removed L2Norm; modernized super() calls; no functional changes.
 
 Only the classes used by the MiniFASNetV2 and MiniFASNetV1SE checkpoints are
 included. Class and module names are preserved so upstream ``.pth`` state

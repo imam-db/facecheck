@@ -136,11 +136,12 @@ Run the test suite:
 pytest -v
 ```
 
-Unit tests run everywhere. Tests marked `model` require `models/*.onnx`; when
-the files are missing locally they skip, but CI downloads and verifies them and
-fails loudly if that download fails. Tests marked `minifasnet` require the
-exported PAD ONNX files and skip when they are absent. The key
-requires-deletion and missing-model tests always run.
+Unit tests run everywhere. Tests marked `model` and `minifasnet` require the
+downloaded ONNX files; when the files are missing locally they skip, but CI
+downloads and verifies all four required models and fails loudly if that
+download fails. Semantic golden tests additionally require
+`FACECHECK_PAD_GOLDEN_DIR` (images kept outside the repo) and skip when it is
+unset. The key requires-deletion and missing-model tests always run.
 
 ### Enroll and verify with curl
 
@@ -478,6 +479,7 @@ scripts/
   fetch_lfw.py          LFW pairs + images for evaluation
   export_minifasnet_onnx.py  offline MiniFASNet -> ONNX export + parity
   _minifasnet_arch.py   vendored MiniFASNet architecture (export only)
+  _crop_image.py        verbatim upstream CropImage port for PAD crops
 eval/
   metrics.py            FAR/FRR helpers, rule of three, Wilson intervals
   run_lfw.py            train-fit / test-report LFW benchmark
@@ -486,6 +488,7 @@ tests/                  unit tests + model-gated integration tests
   fixtures/minifasnet_parity.json  replayable PyTorch/ONNX parity reference
 docs/adr/0001-face-models.md
 docs/adr/0002-presentation-attack-detection.md
+docs/pad_golden_manifest.md  out-of-repo semantic golden schema
 ```
 
 ## Models and licensing
@@ -496,16 +499,19 @@ Source code is MIT (see [LICENSE](LICENSE)).
 | --- | --- | --- |
 | YuNet `face_detection_yunet_2023mar.onnx` | MIT | OpenCV Zoo detector |
 | SFace `face_recognition_sface_2021dec.onnx` | Apache-2.0 (model files) | OpenCV Zoo recognizer |
-| MiniFASNet `2.7_80x80_MiniFASNetV2.onnx` | Apache-2.0 (model files) | Silent-Face anti-spoofing, future PAD |
-| MiniFASNet `4_0_0_80x80_MiniFASNetV1SE.onnx` | Apache-2.0 (model files) | Silent-Face anti-spoofing, future PAD |
+| MiniFASNet `2.7_80x80_MiniFASNetV2.onnx` | Apache-2.0 (model files) | Silent-Face anti-spoofing, required PAD artifact (not wired into v0) |
+| MiniFASNet `4_0_0_80x80_MiniFASNetV1SE.onnx` | Apache-2.0 (model files) | Silent-Face anti-spoofing, required PAD artifact (not wired into v0) |
 | LFW dataset | Research use | Used only for evaluation; never redistributed |
 
 The ONNX weights are **not committed**. `scripts/download_models.py` fetches
 YuNet and SFace from OpenCV Zoo (GitHub or Hugging Face mirror) and MiniFASNet
-from a GitHub release once it is published, verifying pinned SHA-256 digests in
-all cases. See `scripts/model_checksums.json` for URLs and hashes. The short
-digest prefixes appear in every reported `model_version`; the full hashes are
-recorded in the evaluation JSON.
+from the `models-minifasnet-v1` GitHub release, verifying pinned SHA-256 digests
+and byte sizes in all cases. All four entries are required: a failed download
+aborts the script, and CI fails rather than silently skipping model-backed
+tests. See `scripts/model_checksums.json` for URLs, hashes, and the upstream
+commit and `.pth` digests recorded on each MiniFASNet entry. The short digest
+prefixes appear in every reported `model_version`; the full hashes are recorded
+in the evaluation JSON.
 
 Important: SFace's Apache-2.0 model-file license does **not** establish that its
 training data is cleared for commercial use. The SFace paper trains on large
@@ -518,10 +524,13 @@ caveat applies to the MiniFASNet weights below.
 
 ### MiniFASNet ONNX export (PAD prep)
 
-v0 does **not** run liveness detection, but the anti-spoofing models are
-prepared offline so PAD can be added later. The weights come from
+v0 does **not** run liveness detection, but both anti-spoofing artifacts are
+part of the required model set: `scripts/download_models.py` fetches and
+verifies them like YuNet and SFace, and CI fails if they are missing. The
+weights come from
 [minivision-ai/Silent-Face-Anti-Spoofing](https://github.com/minivision-ai/Silent-Face-Anti-Spoofing)
-(Apache-2.0, Copyright 2020 Minivision) and are exported to fixed-shape ONNX:
+pinned to commit `b6d5f04ad78778917853b25c778acef6d5626d15` (Apache-2.0,
+Copyright 2020 Minivision) and are exported to fixed-shape ONNX:
 
 | ONNX file | Source checkpoint | Input | Output |
 | --- | --- | --- | --- |
@@ -531,41 +540,69 @@ prepared offline so PAD can be added later. The weights come from
 Index `1` of the 3 logits is the real / bona-fide class. The models expect
 **raw BGR floats in [0, 255]**: upstream commented out `div(255)`, so do not
 divide by 255 and do not apply mean/std normalization to the 80x80 crop.
+Dividing by 255 marks every face as an attack, and swapping BGR/RGB is
+fail-open (attacks pass as real).
 
-The ONNX binaries are not committed. PyTorch, ONNX, and ONNX Runtime are
-export-only dependencies (`[export]`), never runtime dependencies:
+**Downloading (required).**
+
+```bash
+python scripts/download_models.py
+# fetches YuNet, SFace, and both MiniFASNet models; aborts if any fails
+```
+
+All four manifest entries are required. The downloader streams to a `.part`
+file, checks SHA-256 and byte size before renaming, refuses oversized
+responses, and exits nonzero when a required artifact cannot be fetched. The
+ONNX binaries are not committed; they are published as `models-minifasnet-v1`
+release assets, and that release asset SHA-256 is authoritative because
+re-exports with a different torch version may differ in bytes.
+
+**Exporting (maintainers).** PyTorch, ONNX, and ONNX Runtime are export-only
+dependencies (`[export]`), never runtime dependencies:
 
 ```bash
 python -m pip install -e ".[export]"
 git clone https://github.com/minivision-ai/Silent-Face-Anti-Spoofing \
   /tmp/Silent-Face-Anti-Spoofing
+git -C /tmp/Silent-Face-Anti-Spoofing checkout \
+  b6d5f04ad78778917853b25c778acef6d5626d15
 python scripts/export_minifasnet_onnx.py \
   --silent-face-root /tmp/Silent-Face-Anti-Spoofing
 # -> models/2.7_80x80_MiniFASNetV2.onnx
 # -> models/4_0_0_80x80_MiniFASNetV1SE.onnx
-# prints SHA-256 for each and rewrites tests/fixtures/minifasnet_parity.json
 ```
 
 `--silent-face-root` falls back to `$SILENT_FACE_ROOT` (or
-`$FACECHECK_SILENT_FACE_ROOT`). The script asserts PyTorch vs ONNX Runtime
-parity below `1e-4` on seeded synthetic inputs. The architecture is vendored in
+`$FACECHECK_SILENT_FACE_ROOT`). The script verifies each `.pth` against the
+pinned SHA-256 before loading, asserts PyTorch vs ONNX Runtime parity below
+`1e-4` on seeded synthetic inputs, and writes
+`tests/fixtures/minifasnet_parity.json` only when every model passes. The
+fixture records the upstream commit, per-model `.pth` digests, and the
+torch/onnx/onnxruntime versions. The architecture is vendored in
 `scripts/_minifasnet_arch.py`; only the `.pth` checkpoints are read from the
-Silent-Face clone. Attribution is in [`NOTICE`](NOTICE) and
+clone. Attribution is in [`NOTICE`](NOTICE) and
 [`third_party/Silent-Face-Anti-Spoofing.LICENSE`](third_party/Silent-Face-Anti-Spoofing.LICENSE).
 
-**Publishing (maintainer).** The release tag `models-minifasnet-v1` does **not
-exist yet**. To publish, create that GitHub release on `imam-db/facecheck` and
-upload both ONNX files. Verify the uploaded assets against the `sha256` values
-in `scripts/model_checksums.json`; regenerate the manifest digest only from a
-fresh export. Do not commit the binaries.
+**Semantic goldens.** The crop/preprocessing path is checked against real
+photographs kept outside the repository:
 
-**Downloading.** After the release assets exist, `python
-scripts/download_models.py` fetches and verifies them like the other models.
-Until the release is published, the two entries are marked `"optional": true`,
-so the downloader skips them with a warning and still fetches YuNet and SFace.
-`pytest -m minifasnet` replays the parity fixture when the ONNX files are
-present and skips otherwise; torch is not required to run it. Background and
-open risks are recorded in
+```bash
+export FACECHECK_PAD_GOLDEN_DIR=/path/to/pad-golden
+python scripts/export_minifasnet_onnx.py \
+  --silent-face-root /tmp/Silent-Face-Anti-Spoofing \
+  --golden-dir "$FACECHECK_PAD_GOLDEN_DIR" --update-golden
+pytest -m minifasnet
+
+pytest   # with the variable set, the golden tests also run
+```
+
+The directory holds a `manifest.json` (schema:
+[`docs/pad_golden_manifest.md`](docs/pad_golden_manifest.md)) and images.
+Maintainers supply consented real/print/screen photos and no names; images are
+never committed or shipped. The tests reproduce the upstream `CropImage` port
+from `scripts/_crop_image.py`, require the ONNX files, and skip cleanly when
+`FACECHECK_PAD_GOLDEN_DIR` is unset or missing. Background and open risks are
+recorded in
 [`docs/adr/0002-presentation-attack-detection.md`](docs/adr/0002-presentation-attack-detection.md).
 
 ## Development

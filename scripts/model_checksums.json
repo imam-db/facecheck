@@ -1,6 +1,7 @@
 {
   "face_detection_yunet_2023mar.onnx": {
     "sha256": "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
+    "bytes": 232589,
     "urls": [
       "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx",
       "https://huggingface.co/opencv/face_detection_yunet/resolve/main/face_detection_yunet_2023mar.onnx"
@@ -10,6 +11,7 @@
   },
   "face_recognition_sface_2021dec.onnx": {
     "sha256": "0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79",
+    "bytes": 38696353,
     "urls": [
       "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx",
       "https://huggingface.co/opencv/face_recognition_sface/resolve/main/face_recognition_sface_2021dec.onnx"
@@ -19,22 +21,30 @@
   },
   "2.7_80x80_MiniFASNetV2.onnx": {
     "sha256": "bc15c4ce9e682aadfc1abbbdd5a58b769384776b98241a90f119a15246136658",
+    "bytes": 1743495,
     "urls": [
       "https://github.com/imam-db/facecheck/releases/download/models-minifasnet-v1/2.7_80x80_MiniFASNetV2.onnx"
     ],
     "license": "Apache-2.0 (model files)",
-    "source": "Minivision Silent-Face-Anti-Spoofing, MiniFASNetV2 scale 2.7, exported by scripts/export_minifasnet_onnx.py",
-    "optional": true,
-    "pending_release": "Release tag models-minifasnet-v1 does not exist yet. Imam must create the release and upload this file; until then download_models.py skips this optional entry."
+    "source": "Minivision Silent-Face-Anti-Spoofing commit b6d5f04ad78778917853b25c778acef6d5626d15, MiniFASNetV2 scale 2.7, exported by scripts/export_minifasnet_onnx.py from 2.7_80x80_MiniFASNetV2.pth (sha256 a5eb02e1843f19b5386b953cc4c9f011c3f985d0ee2bb9819eea9a142099bec0). The release asset SHA-256 above is authoritative: re-exports with a different torch version may differ in bytes.",
+    "license_urls": [
+      "https://github.com/imam-db/facecheck/releases/download/models-minifasnet-v1/NOTICE",
+      "https://github.com/imam-db/facecheck/releases/download/models-minifasnet-v1/Silent-Face-Anti-Spoofing.LICENSE"
+    ],
+    "license_note": "NOTICE and Silent-Face-Anti-Spoofing.LICENSE ship as release assets; download_models.py does not fetch them."
   },
   "4_0_0_80x80_MiniFASNetV1SE.onnx": {
     "sha256": "59ad0b3a8bc615590d1fef7b85e6a1c79132b201ccf7eb4c2155d0d28c243526",
+    "bytes": 1742663,
     "urls": [
       "https://github.com/imam-db/facecheck/releases/download/models-minifasnet-v1/4_0_0_80x80_MiniFASNetV1SE.onnx"
     ],
     "license": "Apache-2.0 (model files)",
-    "source": "Minivision Silent-Face-Anti-Spoofing, MiniFASNetV1SE scale 4.0, exported by scripts/export_minifasnet_onnx.py",
-    "optional": true,
-    "pending_release": "Release tag models-minifasnet-v1 does not exist yet. Imam must create the release and upload this file; until then download_models.py skips this optional entry."
+    "source": "Minivision Silent-Face-Anti-Spoofing commit b6d5f04ad78778917853b25c778acef6d5626d15, MiniFASNetV1SE scale 4.0, exported by scripts/export_minifasnet_onnx.py from 4_0_0_80x80_MiniFASNetV1SE.pth (sha256 84ee1d37d96894d5e82de5a57df044ef80a58be2b218b5ed7cdfd875ec2f5990). The release asset SHA-256 above is authoritative: re-exports with a different torch version may differ in bytes.",
+    "license_urls": [
+      "https://github.com/imam-db/facecheck/releases/download/models-minifasnet-v1/NOTICE",
+      "https://github.com/imam-db/facecheck/releases/download/models-minifasnet-v1/Silent-Face-Anti-Spoofing.LICENSE"
+    ],
+    "license_note": "NOTICE and Silent-Face-Anti-Spoofing.LICENSE ship as release assets; download_models.py does not fetch them."
   }
 }
