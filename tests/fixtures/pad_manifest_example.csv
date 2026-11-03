@@ -1,0 +1,5 @@
+path,subject_id,session_id,class,attack_instrument,capture_device,condition,consent,notes
+presentations/subj_01/s01_bona_01.jpg,subj_01,s01,bona_fide,,phone_front,daylight indoor,true,synthetic example row
+presentations/subj_01/s01_print_01.jpg,subj_01,s01,print,glossy_print,phone_front,daylight indoor,true,synthetic example row
+presentations/subj_02/s02_phone_01.jpg,subj_02,s02,phone_screen,phone_oled,laptop_webcam,dim indoor,true,synthetic example row
+presentations/subj_02/s02_laptop_01.jpg,subj_02,s02,laptop_screen,laptop_lcd,phone_front,backlit,true,synthetic example row

@@ -1,12 +1,17 @@
-"""Metric helpers for the LFW evaluation harness.
+"""Metric helpers for the LFW and PAD evaluation harnesses.
 
 The functions here are intentionally small and pure so they can be unit
 tested on synthetic scores without touching the models or the dataset.
+
+PAD helpers follow ISO/IEC 30107-3 terminology. A presentation is *accepted*
+when its PAD real-class probability is at or above the threshold, so an attack
+accepted at that threshold contributes to APCER.
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 import numpy as np
@@ -170,3 +175,151 @@ def failure_to_acquire(skipped_pairs: int, attempted_pairs: int) -> float | None
     if attempted_pairs <= 0:
         return None
     return skipped_pairs / attempted_pairs
+
+
+def apcer(attack_accepted: int, attack_presentations: int) -> float | None:
+    """Attack Presentation Classification Error Rate (ISO/IEC 30107-3).
+
+    The fraction of attack presentations that the PAD accepted as bona fide.
+    Returns ``None`` when no attack presentations were scored.
+    """
+
+    if attack_presentations <= 0:
+        return None
+    return attack_accepted / attack_presentations
+
+
+def bpcer(bona_rejected: int, bona_presentations: int) -> float | None:
+    """Bona Fide Presentation Classification Error Rate (ISO/IEC 30107-3).
+
+    The fraction of bona-fide presentations that the PAD rejected. Returns
+    ``None`` when no bona-fide presentations were scored.
+    """
+
+    if bona_presentations <= 0:
+        return None
+    return bona_rejected / bona_presentations
+
+
+def iapmr(attacks_that_matched: int, attack_presentations: int) -> float | None:
+    """Impostor Attack Presentation Match Rate (ISO/IEC 30107-3).
+
+    This harness has no matcher wired into it, so it reports IAPMR as ``None``.
+    The helper is still the named accepted/total rate for callers that do have
+    match outcomes, and it is numerically the same as the PAD accept rate on
+    attacks when the stimulus is a PAD score.
+    """
+
+    if attack_presentations <= 0:
+        return None
+    return attacks_that_matched / attack_presentations
+
+
+@dataclass(frozen=True)
+class PadRates:
+    """PAD accept/reject counts and rates for one threshold."""
+
+    threshold: float
+    bona_presentations: int
+    bona_rejected: int
+    bpcer: float | None
+    attack_presentations: int
+    attack_accepted: int
+    apcer: float | None
+
+
+def _score_array(scores: Iterable[float] | np.ndarray) -> np.ndarray:
+    values = scores if isinstance(scores, np.ndarray) else list(scores)
+    return np.asarray(values, dtype=np.float64).reshape(-1)
+
+
+def pad_rates_at(
+    bona_scores: Iterable[float] | np.ndarray,
+    attack_scores: Iterable[float] | np.ndarray,
+    threshold: float,
+) -> PadRates:
+    """Count accepted/rejected presentations at ``threshold``.
+
+    A presentation is accepted when its real-class probability is
+    ``>= threshold``. That is the conservative direction for a PAD: an attack
+    that scores exactly at the threshold is counted as accepted.
+    """
+
+    bona = _score_array(bona_scores)
+    attacks = _score_array(attack_scores)
+    bona_rejected = int(np.sum(bona < threshold))
+    attack_accepted = int(np.sum(attacks >= threshold))
+    return PadRates(
+        threshold=float(threshold),
+        bona_presentations=int(bona.size),
+        bona_rejected=bona_rejected,
+        bpcer=bpcer(bona_rejected, int(bona.size)),
+        attack_presentations=int(attacks.size),
+        attack_accepted=attack_accepted,
+        apcer=apcer(attack_accepted, int(attacks.size)),
+    )
+
+
+def pad_threshold_sweep(
+    bona_scores: Iterable[float] | np.ndarray,
+    attack_scores: Iterable[float] | np.ndarray,
+    thresholds: Iterable[float],
+) -> list[PadRates]:
+    """Evaluate unique thresholds in ascending order, for a report table."""
+
+    return [
+        pad_rates_at(bona_scores, attack_scores, float(threshold))
+        for threshold in sorted({float(value) for value in thresholds})
+    ]
+
+
+def choose_bpcer_threshold(
+    bona_scores: Iterable[float] | np.ndarray, bpcer_target: float
+) -> float | None:
+    """Highest observed threshold whose BPCER is within ``bpcer_target``.
+
+    Raising the threshold rejects more bona-fide presentations, so BPCER is
+    non-decreasing in the threshold. Walking the observed scores from high to
+    low returns the most attack-resistant operating point that still meets the
+    bona-fide error budget. The result is capped at the highest observed score
+    rather than returning an unbounded value.
+    """
+
+    if not 0.0 <= bpcer_target <= 1.0:
+        raise ValueError("bpcer_target must be between 0 and 1")
+    scores = _score_array(bona_scores)
+    if scores.size == 0:
+        return None
+
+    for threshold in np.unique(scores)[::-1]:
+        rate = bpcer(int(np.sum(scores < threshold)), int(scores.size))
+        if rate is not None and rate <= bpcer_target:
+            return float(threshold)
+    return float(scores.min())
+
+
+def choose_apcer_threshold(
+    attack_scores: Iterable[float] | np.ndarray, apcer_target: float
+) -> float | None:
+    """Lowest threshold whose APCER is within ``apcer_target``.
+
+    Lowering the threshold accepts more presentations and therefore raises
+    APCER. Walking candidates upward returns the lowest threshold that satisfies
+    the attack-accept budget, which is also the point with the lowest BPCER.
+    Candidates include ``0.0`` and a value just above the highest score so a
+    zero-accept budget is reachable.
+    """
+
+    if not 0.0 <= apcer_target <= 1.0:
+        raise ValueError("apcer_target must be between 0 and 1")
+    scores = _score_array(attack_scores)
+    if scores.size == 0:
+        return None
+
+    candidates = [0.0, *(float(value) for value in np.unique(scores))]
+    candidates.append(math.nextafter(float(scores.max()), math.inf))
+    for threshold in candidates:
+        rate = apcer(int(np.sum(scores >= threshold)), int(scores.size))
+        if rate is not None and rate <= apcer_target:
+            return threshold
+    return math.nextafter(float(scores.max()), math.inf)
