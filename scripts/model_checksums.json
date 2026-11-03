@@ -16,5 +16,25 @@
     ],
     "license": "Apache-2.0 (model files)",
     "source": "OpenCV Zoo (SFace, 2021dec)"
+  },
+  "2.7_80x80_MiniFASNetV2.onnx": {
+    "sha256": "bc15c4ce9e682aadfc1abbbdd5a58b769384776b98241a90f119a15246136658",
+    "urls": [
+      "https://github.com/imam-db/facecheck/releases/download/models-minifasnet-v1/2.7_80x80_MiniFASNetV2.onnx"
+    ],
+    "license": "Apache-2.0 (model files)",
+    "source": "Minivision Silent-Face-Anti-Spoofing, MiniFASNetV2 scale 2.7, exported by scripts/export_minifasnet_onnx.py",
+    "optional": true,
+    "pending_release": "Release tag models-minifasnet-v1 does not exist yet. Imam must create the release and upload this file; until then download_models.py skips this optional entry."
+  },
+  "4_0_0_80x80_MiniFASNetV1SE.onnx": {
+    "sha256": "59ad0b3a8bc615590d1fef7b85e6a1c79132b201ccf7eb4c2155d0d28c243526",
+    "urls": [
+      "https://github.com/imam-db/facecheck/releases/download/models-minifasnet-v1/4_0_0_80x80_MiniFASNetV1SE.onnx"
+    ],
+    "license": "Apache-2.0 (model files)",
+    "source": "Minivision Silent-Face-Anti-Spoofing, MiniFASNetV1SE scale 4.0, exported by scripts/export_minifasnet_onnx.py",
+    "optional": true,
+    "pending_release": "Release tag models-minifasnet-v1 does not exist yet. Imam must create the release and upload this file; until then download_models.py skips this optional entry."
   }
 }

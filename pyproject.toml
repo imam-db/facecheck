@@ -41,6 +41,11 @@ dev = [
   "matplotlib>=3.9",
   "ruff>=0.7",
 ]
+export = [
+  "torch>=2.2",
+  "onnx>=1.16",
+  "onnxruntime>=1.18",
+]
 eval = [
   "scikit-learn>=1.5",
   "matplotlib>=3.9",
@@ -58,7 +63,10 @@ packages = ["src/facecheck"]
 [tool.pytest.ini_options]
 addopts = "-ra"
 testpaths = ["tests"]
-markers = ["model: requires downloaded YuNet/SFace ONNX models"]
+markers = [
+  "model: requires downloaded YuNet/SFace ONNX models",
+  "minifasnet: requires exported MiniFASNet ONNX models",
+]
 filterwarnings = ["error::DeprecationWarning:facecheck.*"]
 
 [tool.ruff]

@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""Download the YuNet and SFace ONNX models and verify their SHA-256 digests.
+"""Download the ONNX models and verify their SHA-256 digests.
 
 The canonical digests live in ``scripts/model_checksums.json``. Models are
 written to ``models/`` (gitignored) together with a ``checksums.txt`` for
 offline verification. Nothing here is imported by the service, so the script
 only needs the Python standard library.
+
+The YuNet and SFace entries are required. MiniFASNet PAD entries are marked
+``"optional": true`` because their GitHub release assets may not be published
+yet; an unavailable optional asset is skipped with a warning instead of failing
+the whole download. Existing local files are always checksum-verified.
 """
 
 from __future__ import annotations
@@ -22,6 +27,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = REPO_ROOT / "scripts" / "model_checksums.json"
 USER_AGENT = "facecheck-model-downloader/0.1 (+https://github.com/imam-db/facecheck)"
 CHUNK_SIZE = 1024 * 1024
+
+
+class DownloadError(RuntimeError):
+    """A model could not be fetched from any of its manifest URLs."""
 
 
 def sha256_file(path: Path) -> str:
@@ -73,7 +82,7 @@ def fetch_model(
 
     urls = [str(url) for url in entry.get("urls", [])]
     if not urls:
-        raise SystemExit(f"{filename}: no download URL in manifest")
+        raise DownloadError(f"{filename}: no download URL in manifest")
 
     last_error: Exception | None = None
     for url in urls:
@@ -85,7 +94,7 @@ def fetch_model(
             last_error = exc
             print(f"  failed: {exc}", file=sys.stderr)
     else:
-        raise SystemExit(f"{filename}: all download URLs failed ({last_error})")
+        raise DownloadError(f"{filename}: all download URLs failed ({last_error})")
 
     actual = sha256_file(destination)
     if expected and actual != expected:
@@ -131,10 +140,16 @@ def main(argv: list[str] | None = None) -> int:
 
     checksums: dict[str, str] = {}
     updated = False
+    skipped: list[str] = []
     for filename, entry in manifest.items():
+        optional = bool(entry.get("optional"))
         destination = models_dir / filename
         if args.verify_only:
             if not destination.is_file():
+                if optional:
+                    print(f"skip optional {filename} (not present)", file=sys.stderr)
+                    skipped.append(filename)
+                    continue
                 raise SystemExit(f"{filename}: missing (expected in {models_dir})")
             actual = sha256_file(destination)
             expected = str(entry.get("sha256") or "")
@@ -146,9 +161,18 @@ def main(argv: list[str] | None = None) -> int:
             checksums[filename] = actual
             continue
 
-        destination, actual, downloaded = fetch_model(
-            filename, entry, models_dir, force=args.force
-        )
+        try:
+            destination, actual, downloaded = fetch_model(
+                filename, entry, models_dir, force=args.force
+            )
+        except DownloadError as exc:
+            if optional:
+                print(f"skip optional {filename}: {exc}", file=sys.stderr)
+                if entry.get("pending_release"):
+                    print(f"  note: {entry['pending_release']}", file=sys.stderr)
+                skipped.append(filename)
+                continue
+            raise SystemExit(str(exc)) from exc
         entry["sha256"] = actual
         updated = updated or downloaded
         checksums[filename] = actual
@@ -159,6 +183,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.update_checksums and updated:
         save_manifest(manifest)
         print(f"updated {MANIFEST_PATH}")
+    if skipped:
+        print(f"skipped {len(skipped)} optional model(s): {', '.join(skipped)}")
     print(f"models ready in {models_dir}")
     return 0
 
