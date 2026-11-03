@@ -14,6 +14,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_DETECTOR_FILE = "face_detection_yunet_2023mar.onnx"
 DEFAULT_RECOGNIZER_FILE = "face_recognition_sface_2021dec.onnx"
+DEFAULT_PAD_V2_FILE = "2.7_80x80_MiniFASNetV2.onnx"
+DEFAULT_PAD_V1SE_FILE = "4_0_0_80x80_MiniFASNetV1SE.onnx"
 
 # Values committed to this repository for local experiments. They are public,
 # so a production process must never start with them.
@@ -37,6 +39,8 @@ class Settings(BaseSettings):
     models_dir: Path = Path("models")
     detector_file: str = DEFAULT_DETECTOR_FILE
     recognizer_file: str = DEFAULT_RECOGNIZER_FILE
+    pad_v2_file: str = DEFAULT_PAD_V2_FILE
+    pad_v1se_file: str = DEFAULT_PAD_V1SE_FILE
 
     match_threshold: float = Field(default=0.363, gt=-1.0, le=1.0)
     enroll_threshold: float | None = Field(default=None, gt=-1.0, le=1.0)
@@ -63,6 +67,14 @@ class Settings(BaseSettings):
     @property
     def recognizer_path(self) -> Path:
         return self.models_dir / self.recognizer_file
+
+    @property
+    def pad_v2_path(self) -> Path:
+        return self.models_dir / self.pad_v2_file
+
+    @property
+    def pad_v1se_path(self) -> Path:
+        return self.models_dir / self.pad_v1se_file
 
     @property
     def effective_enroll_threshold(self) -> float:

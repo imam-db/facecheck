@@ -470,6 +470,7 @@ src/facecheck/
   embeddings.py   FaceEmbedder protocol + YuNet/SFace implementation
   quality.py      exactly-one-face, absolute/relative size gate
   similarity.py   cosine similarity, best-of-templates, decision
+  liveness/       PAD runtime: protocol, CropImage port, box mapper, MiniFASNet
   storage.py      SQLAlchemy models + AES-GCM template encryption
   service.py      consent, enroll / verify / delete use cases
   api.py          FastAPI app, API-key middleware, error envelope
@@ -604,6 +605,14 @@ from `scripts/_crop_image.py`, require the ONNX files, and skip cleanly when
 `FACECHECK_PAD_GOLDEN_DIR` is unset or missing. Background and open risks are
 recorded in
 [`docs/adr/0002-presentation-attack-detection.md`](docs/adr/0002-presentation-attack-detection.md).
+
+The runtime building blocks now live under `src/facecheck/liveness/`: a
+`LivenessDetector` protocol and `LivenessResult`, a runtime `CropImage` port
+(kept bit-identical to the scripts reference), a detection-to-full-res box
+mapper, and `MiniFASNetLivenessDetector`. The detector scores a full-resolution
+image plus a face box and reports the averaged real probability. It applies no
+threshold and is not wired into enroll or verify; full PAD integration remains
+Proposed.
 
 ## Development
 

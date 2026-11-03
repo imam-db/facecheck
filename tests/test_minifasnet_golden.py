@@ -6,28 +6,34 @@ variable is unset, the directory or ``manifest.json`` is missing, or the
 MiniFASNet ONNX files have not been exported, these tests skip. No image is
 ever committed.
 
-For each case the test reproduces the upstream crop with the verbatim
-``CropImage`` port, scores raw BGR [0, 255] inputs through ``cv2.dnn``, and
-checks:
+The correct-score path goes through the **runtime**
+``MiniFASNetLivenessDetector`` so the golden numbers exercise the shipped
+preprocessing (runtime ``CropImage``, raw BGR [0, 255] NCHW). The scripts crop
+port stays only as a bit-identical reference in ``tests/test_liveness_crops.py``.
 
-- the real probability matches the manifest within ``1e-3`` for **every** case;
+For each case the test checks:
+
+- the real probability matches the manifest within ``1e-3`` for **every** case,
+  using the detector's averaged ``score`` and its per-model probabilities;
 - dividing by 255 drives *discriminative* cases below ``0.1`` (and, for real
   cases, well away from the expected value), because the models were trained on
   raw pixels;
 - swapping BGR/RGB is fail-open for discriminative spoof cases: the swapped crop
   looks at least ``0.5`` more real than the correct crop.
 
+The wrong-preprocessing paths build intentional bad blobs locally from the
+runtime ``CropImage`` so a regression is still caught without adding wrong-path
+options to the detector API.
+
 ``discriminative`` defaults to ``False`` when absent (see
 ``docs/pad_golden_manifest.md``), so the contrast assertions only run where the
-model already classifies the correct crop correctly. Missed-attack cases still
-have their expected score checked.
+model already classifies the correct crop correctly.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import sys
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -37,24 +43,21 @@ import numpy as np
 import pytest
 
 from facecheck.config import Settings
-
-pytestmark = pytest.mark.minifasnet
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
-from scripts._crop_image import CropImage  # noqa: E402
-
-from tests.pad_golden_policy import (  # noqa: E402
+from facecheck.liveness.crops import CropImage
+from facecheck.liveness.minifasnet import (
+    INPUT_SIZE,
+    REAL_CLASS_INDEX,
+    MiniFASNetLivenessDetector,
+)
+from tests.pad_golden_policy import (
     missing_discriminative_labels,
     should_assert_div255,
     should_assert_rgb_swap_gain,
 )
 
+pytestmark = pytest.mark.minifasnet
+
 GOLDEN_ENV = "FACECHECK_PAD_GOLDEN_DIR"
-INPUT_SIZE = 80
-REAL_CLASS_INDEX = 1
 GOLDEN_TOLERANCE = 1e-3
 DIV255_MAX = 0.1
 DIV255_MIN_GAP = 0.5
@@ -101,6 +104,11 @@ requires_models = pytest.mark.skipif(
 
 
 @cache
+def _detector() -> MiniFASNetLivenessDetector:
+    return MiniFASNetLivenessDetector.from_settings(Settings(_env_file=None))
+
+
+@cache
 def _cv2_net(path: str):
     return cv2.dnn.readNetFromONNX(path)
 
@@ -120,13 +128,15 @@ def _blob(crop: np.ndarray, *, div255: bool = False, rgb_swap: bool = False) -> 
     return np.ascontiguousarray(array.transpose(2, 0, 1)[None])
 
 
-def _score_case(
+def _wrong_preprocessing_probs(
     image: np.ndarray,
     bbox_xywh: list[int],
     *,
     div255: bool = False,
     rgb_swap: bool = False,
 ) -> dict[str, float]:
+    """Score intentionally wrong blobs built from the runtime crop."""
+
     cropper = CropImage()
     probs: dict[str, float] = {}
     for name, scale in MODEL_SCALES.items():
@@ -162,14 +172,13 @@ def test_golden_real_probability(case: dict[str, Any]) -> None:
     bbox = [int(value) for value in case["bbox_xywh"]]
     expected = float(case["expected_real_prob"])
 
-    correct = _score_case(image, bbox)
-    average = _average(correct)
-    assert abs(average - expected) < GOLDEN_TOLERANCE, (
-        f"{case['id']}: expected_real_prob {expected:.6f}, got {average:.6f}"
+    result = _detector().score(image, bbox)
+    assert abs(result.score - expected) < GOLDEN_TOLERANCE, (
+        f"{case['id']}: expected_real_prob {expected:.6f}, got {result.score:.6f}"
     )
 
     for name, probability in (case.get("expected_per_model") or {}).items():
-        assert abs(correct[name] - float(probability)) < GOLDEN_TOLERANCE
+        assert abs(result.per_model[name] - float(probability)) < GOLDEN_TOLERANCE
 
 
 @pytest.mark.parametrize("case", CASES, ids=[case["id"] for case in CASES])
@@ -184,7 +193,7 @@ def test_golden_div255_is_wrong(case: dict[str, Any]) -> None:
 
     bbox = [int(value) for value in case["bbox_xywh"]]
     expected = float(case["expected_real_prob"])
-    average = _average(_score_case(image, bbox, div255=True))
+    average = _average(_wrong_preprocessing_probs(image, bbox, div255=True))
 
     # Dividing by 255 collapses every face toward the attack classes.
     assert average < DIV255_MAX, (
@@ -209,7 +218,7 @@ def test_golden_rgb_swap_is_fail_open(case: dict[str, Any]) -> None:
 
     bbox = [int(value) for value in case["bbox_xywh"]]
     expected = float(case["expected_real_prob"])
-    average = _average(_score_case(image, bbox, rgb_swap=True))
+    average = _average(_wrong_preprocessing_probs(image, bbox, rgb_swap=True))
 
     # A channel swap makes attacks look real: the failure mode is fail-open.
     assert average - expected > FAIL_OPEN_MARGIN, (

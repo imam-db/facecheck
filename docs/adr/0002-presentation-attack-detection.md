@@ -4,7 +4,8 @@
 - Date: 2026-11-03
 - Deciders: facecheck maintainers
 - Related: `scripts/export_minifasnet_onnx.py`, `scripts/model_checksums.json`,
-  `tests/test_minifasnet_parity.py`
+  `src/facecheck/liveness/`, `tests/test_minifasnet_parity.py`,
+  `tests/test_liveness_crops.py`, `tests/test_liveness_boxes.py`
 
 ## Context
 
@@ -51,6 +52,16 @@ Details:
   them like YuNet and SFace, and CI fails if the download fails.
 - PyTorch, ONNX, and ONNX Runtime live in the `export` optional-dependency
   group only. They are not runtime dependencies.
+
+### Runtime module landed
+
+The runtime building blocks now live under `src/facecheck/liveness/`: the
+`LivenessDetector` protocol and `LivenessResult`, the `CropImage` runtime port
+(kept bit-identical to `scripts/_crop_image.py`), the detection-to-full-res box
+mapper, and `MiniFASNetLivenessDetector`. The detector scores a full-resolution
+image plus a box and reports the averaged real probability; it applies no
+threshold and is not wired into enroll or verify. The full PAD integration
+remains Proposed (see "Carry into PR 2").
 
 ## Consequences
 
