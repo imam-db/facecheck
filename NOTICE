@@ -1,0 +1,23 @@
+facecheck
+Copyright 2026 facecheck contributors
+
+This product includes derived model artifacts from Silent-Face-Anti-Spoofing.
+
+MiniFASNet anti-spoofing architecture and weights
+-------------------------------------------------
+Upstream: https://github.com/minivision-ai/Silent-Face-Anti-Spoofing
+Copyright 2020 Minivision
+License: Apache License 2.0
+
+The ONNX files ``2.7_80x80_MiniFASNetV2.onnx`` and
+``4_0_0_80x80_MiniFASNetV1SE.onnx`` are format conversions of the upstream
+``.pth`` checkpoints, performed by ``scripts/export_minifasnet_onnx.py``. The
+vendored architecture copy lives in ``scripts/_minifasnet_arch.py``. The full
+upstream license text is reproduced in
+``third_party/Silent-Face-Anti-Spoofing.LICENSE``.
+
+Training-data provenance for the upstream MiniFASNet weights is undocumented.
+The Apache-2.0 license on the code and weights does not establish that the
+training data is cleared for commercial use. Treat any commercial deployment
+as requiring legal review, the same caveat that applies to the SFace model
+files (see ``docs/adr/0001-face-models.md``).

@@ -1,10 +1,23 @@
 #!/usr/bin/env python3
-"""Download the YuNet and SFace ONNX models and verify their SHA-256 digests.
+"""Download the ONNX models and verify their SHA-256 digests.
 
 The canonical digests live in ``scripts/model_checksums.json``. Models are
 written to ``models/`` (gitignored) together with a ``checksums.txt`` for
 offline verification. Nothing here is imported by the service, so the script
 only needs the Python standard library.
+
+All four entries (YuNet, SFace, MiniFASNetV2, MiniFASNetV1SE) are required.
+Every manifest entry must have a non-empty ``sha256``; a missing digest is a
+configuration error and aborts the run. Downloads are streamed to a ``.part``
+file, hashed and size-checked there, and only renamed into place after both
+checks pass. When an entry declares ``bytes`` the downloader refuses a response
+whose declared or observed size exceeds that value.
+
+``optional: true`` remains supported for future non-critical artifacts: an
+optional entry that cannot be fetched (network error, timeout, 404) is skipped
+with a warning instead of failing the run. Checksum or size mismatches are
+integrity failures, not transport failures, so they are always fatal even for
+optional entries. None of the current entries use ``optional``.
 """
 
 from __future__ import annotations
@@ -12,7 +25,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import shutil
 import sys
 import urllib.error
 import urllib.request
@@ -22,6 +34,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = REPO_ROOT / "scripts" / "model_checksums.json"
 USER_AGENT = "facecheck-model-downloader/0.1 (+https://github.com/imam-db/facecheck)"
 CHUNK_SIZE = 1024 * 1024
+
+
+class DownloadError(RuntimeError):
+    """A model could not be fetched from any of its manifest URLs."""
+
+
+class IntegrityError(RuntimeError):
+    """A model failed checksum or size verification; always fatal."""
 
 
 def sha256_file(path: Path) -> str:
@@ -41,12 +61,106 @@ def save_manifest(manifest: dict[str, dict[str, object]], path: Path = MANIFEST_
     path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
 
-def download(url: str, destination: Path) -> None:
+def required_sha256(entry: dict[str, object], filename: str) -> str:
+    expected = str(entry.get("sha256") or "").strip().lower()
+    if not expected:
+        raise SystemExit(f"{filename}: manifest is missing sha256; refusing to continue")
+    return expected
+
+
+def expected_size(entry: dict[str, object], filename: str) -> int | None:
+    value = entry.get("bytes")
+    if value is None:
+        return None
+    try:
+        size = int(value)
+    except (TypeError, ValueError) as exc:
+        raise SystemExit(f"{filename}: invalid bytes value {value!r}") from exc
+    if size <= 0:
+        raise SystemExit(f"{filename}: invalid bytes value {value!r}")
+    return size
+
+
+def check_file(
+    path: Path, filename: str, expected_sha: str, expected_bytes: int | None
+) -> str:
+    actual = sha256_file(path)
+    if actual != expected_sha:
+        raise IntegrityError(
+            f"{filename}: checksum mismatch\n"
+            f"  expected {expected_sha}\n  actual   {actual}\n"
+            "Re-run with --force to download again."
+        )
+    if expected_bytes is not None:
+        actual_bytes = path.stat().st_size
+        if actual_bytes != expected_bytes:
+            raise IntegrityError(
+                f"{filename}: size mismatch\n"
+                f"  expected {expected_bytes}\n  actual   {actual_bytes}\n"
+                "Re-run with --force to download again."
+            )
+    return actual
+
+
+def download(
+    url: str,
+    destination: Path,
+    *,
+    expected_sha: str,
+    expected_bytes: int | None,
+) -> str:
+    """Stream to ``.part``, verify hash and size, then rename. Returns the digest."""
+
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     partial = destination.with_suffix(destination.suffix + ".part")
-    with urllib.request.urlopen(request, timeout=120) as response, partial.open("wb") as out:
-        shutil.copyfileobj(response, out, CHUNK_SIZE)
-    partial.replace(destination)
+    digest = hashlib.sha256()
+    size = 0
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response, partial.open("wb") as out:
+            content_length = response.headers.get("Content-Length")
+            if expected_bytes is not None and content_length is not None:
+                try:
+                    declared = int(content_length)
+                except ValueError as exc:
+                    raise DownloadError(
+                        f"{destination.name}: invalid Content-Length {content_length!r}"
+                    ) from exc
+                if declared > expected_bytes:
+                    raise IntegrityError(
+                        f"{destination.name}: refusing oversized download "
+                        f"({declared} bytes > expected {expected_bytes})"
+                    )
+            while True:
+                chunk = response.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if expected_bytes is not None and size > expected_bytes:
+                    raise IntegrityError(
+                        f"{destination.name}: refusing oversized download "
+                        f"(> expected {expected_bytes} bytes)"
+                    )
+                digest.update(chunk)
+                out.write(chunk)
+
+        actual = digest.hexdigest()
+        if not actual:
+            raise IntegrityError(f"{destination.name}: empty SHA-256 after download")
+        if actual != expected_sha:
+            raise IntegrityError(
+                f"{destination.name}: checksum mismatch before rename\n"
+                f"  expected {expected_sha}\n  actual   {actual}"
+            )
+        if expected_bytes is not None and size != expected_bytes:
+            raise IntegrityError(
+                f"{destination.name}: size mismatch before rename\n"
+                f"  expected {expected_bytes}\n  actual   {size}"
+            )
+        partial.replace(destination)
+        return actual
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
 
 
 def fetch_model(
@@ -59,41 +173,34 @@ def fetch_model(
     """Return (path, sha256, downloaded)."""
 
     destination = models_dir / filename
-    expected = str(entry.get("sha256") or "")
+    expected_sha = required_sha256(entry, filename)
+    expected_bytes = expected_size(entry, filename)
 
     if destination.is_file() and not force:
-        actual = sha256_file(destination)
-        if expected and actual != expected:
-            raise SystemExit(
-                f"{filename}: checksum mismatch for existing file\n"
-                f"  expected {expected}\n  actual   {actual}\n"
-                "Re-run with --force to download again."
-            )
+        actual = check_file(destination, filename, expected_sha, expected_bytes)
         return destination, actual, False
 
     urls = [str(url) for url in entry.get("urls", [])]
     if not urls:
-        raise SystemExit(f"{filename}: no download URL in manifest")
+        raise DownloadError(f"{filename}: no download URL in manifest")
 
     last_error: Exception | None = None
     for url in urls:
         print(f"downloading {filename}\n  from {url}")
         try:
-            download(url, destination)
+            actual = download(
+                url,
+                destination,
+                expected_sha=expected_sha,
+                expected_bytes=expected_bytes,
+            )
             break
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             last_error = exc
             print(f"  failed: {exc}", file=sys.stderr)
     else:
-        raise SystemExit(f"{filename}: all download URLs failed ({last_error})")
+        raise DownloadError(f"{filename}: all download URLs failed ({last_error})")
 
-    actual = sha256_file(destination)
-    if expected and actual != expected:
-        destination.unlink(missing_ok=True)
-        raise SystemExit(
-            f"{filename}: checksum mismatch after download\n"
-            f"  expected {expected}\n  actual   {actual}"
-        )
     return destination, actual, True
 
 
@@ -129,26 +236,45 @@ def main(argv: list[str] | None = None) -> int:
     models_dir.mkdir(parents=True, exist_ok=True)
     manifest = load_manifest()
 
+    for filename, entry in manifest.items():
+        required_sha256(entry, filename)
+        expected_size(entry, filename)
+
     checksums: dict[str, str] = {}
     updated = False
+    skipped: list[str] = []
     for filename, entry in manifest.items():
+        optional = bool(entry.get("optional"))
         destination = models_dir / filename
-        if args.verify_only:
-            if not destination.is_file():
-                raise SystemExit(f"{filename}: missing (expected in {models_dir})")
-            actual = sha256_file(destination)
-            expected = str(entry.get("sha256") or "")
-            if expected and actual != expected:
-                raise SystemExit(
-                    f"{filename}: checksum mismatch\n  expected {expected}\n  actual   {actual}"
-                )
-            print(f"ok {filename} {actual}")
-            checksums[filename] = actual
-            continue
+        expected_sha = required_sha256(entry, filename)
+        expected_bytes = expected_size(entry, filename)
+        try:
+            if args.verify_only:
+                if not destination.is_file():
+                    if optional:
+                        print(f"skip optional {filename} (not present)", file=sys.stderr)
+                        skipped.append(filename)
+                        continue
+                    raise SystemExit(f"{filename}: missing (expected in {models_dir})")
+                actual = check_file(destination, filename, expected_sha, expected_bytes)
+                print(f"ok {filename} {actual}")
+                checksums[filename] = actual
+                continue
 
-        destination, actual, downloaded = fetch_model(
-            filename, entry, models_dir, force=args.force
-        )
+            try:
+                destination, actual, downloaded = fetch_model(
+                    filename, entry, models_dir, force=args.force
+                )
+            except DownloadError as exc:
+                if optional:
+                    print(f"skip optional {filename}: {exc}", file=sys.stderr)
+                    skipped.append(filename)
+                    continue
+                raise SystemExit(str(exc)) from exc
+        except IntegrityError as exc:
+            # Checksum or size failures are never skipped, even for optional entries.
+            raise SystemExit(str(exc)) from exc
+
         entry["sha256"] = actual
         updated = updated or downloaded
         checksums[filename] = actual
@@ -159,6 +285,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.update_checksums and updated:
         save_manifest(manifest)
         print(f"updated {MANIFEST_PATH}")
+    if skipped:
+        print(f"skipped {len(skipped)} optional model(s): {', '.join(skipped)}")
     print(f"models ready in {models_dir}")
     return 0
 

@@ -13,7 +13,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends libglib2.0-0 curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml README.md LICENSE ./
+COPY pyproject.toml README.md LICENSE NOTICE ./
+COPY third_party ./third_party
 COPY src ./src
 RUN pip install ".[postgres]"
 

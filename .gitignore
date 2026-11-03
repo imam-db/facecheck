@@ -24,6 +24,7 @@ htmlcov/
 # Models and datasets (download via scripts; never commit)
 models/
 *.onnx
+*.pth
 data/lfw/
 data/lfw_home/
 data/*.tgz
