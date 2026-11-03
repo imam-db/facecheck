@@ -54,9 +54,12 @@ def test_missing_models_raise_model_not_found(tmp_path: Path) -> None:
 
 def test_downscale_preserves_aspect_ratio() -> None:
     image = np.zeros((1000, 2000, 3), dtype=np.uint8)
-    scaled = _maybe_downscale(image, 960)
+    scaled, scale = _maybe_downscale(image, 960)
     assert scaled.shape == (480, 960, 3)
-    assert _maybe_downscale(image, 0).shape == image.shape
+    assert scale == pytest.approx(960 / 2000)
+    unchanged, no_scale = _maybe_downscale(image, 0)
+    assert unchanged.shape == image.shape
+    assert no_scale == 1.0
 
 
 @requires_models

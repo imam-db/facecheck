@@ -4,7 +4,8 @@
 - Date: 2026-11-03
 - Deciders: facecheck maintainers
 - Related: `scripts/export_minifasnet_onnx.py`, `scripts/model_checksums.json`,
-  `tests/test_minifasnet_parity.py`
+  `src/facecheck/liveness/`, `tests/test_minifasnet_parity.py`,
+  `tests/test_liveness_crops.py`, `tests/test_liveness_boxes.py`
 
 ## Context
 
@@ -52,6 +53,24 @@ Details:
 - PyTorch, ONNX, and ONNX Runtime live in the `export` optional-dependency
   group only. They are not runtime dependencies.
 
+### Runtime module landed
+
+The runtime building blocks now live under `src/facecheck/liveness/`: the
+`LivenessDetector` protocol and `LivenessResult`, the `CropImage` runtime port
+(kept bit-identical to `scripts/_crop_image.py`), the detection-to-full-res box
+mapper, and `MiniFASNetLivenessDetector`. The detector scores a full-resolution
+image plus a box and reports the averaged real probability; it applies no
+threshold and is not wired into enroll or verify. The full PAD integration
+remains Proposed (see "Carry into PR 2").
+
+The module also exposes `EmbeddingResult.full_res_bbox_xywh`, the wiring entry
+point `MiniFASNetLivenessDetector.score_face`, typed liveness errors
+(`LivenessError`, `LivenessInputError`, `LivenessModelNotFoundError`), and
+`validate_liveness_inputs`. These keep the downscaled detection box from
+reaching the PAD crop raw and keep PAD failures out of the embedder error
+hierarchy. `LivenessModelNotFoundError` deliberately does not subclass
+`EmbedderError`; mapping it to HTTP 422 would be wrong.
+
 ## Consequences
 
 Positive:
@@ -89,8 +108,9 @@ following notes are carry-over requirements:
   `0.99` real, so a PAD score without a detected face is meaningless.
 - Fail closed at startup when liveness mode is not `off` and the PAD models are
   missing.
-- Log the crop aspect ratio; the upstream models were trained on roughly 3:4
-  boxes.
+- Log the **frame** aspect ratio (`image.shape[1] / image.shape[0]`), matching
+  upstream `check_image`'s roughly 3:4 frame check. It is not the face box
+  ratio.
 
 ### Watch first in PR 2
 
@@ -115,3 +135,18 @@ following notes are carry-over requirements:
 7. Default the mode to `off` until the evaluation picks a threshold. Expose the
    PAD `model_version` (both SHA-256 prefixes) in `/v1/meta` and in responses so
    a score can be traced to the artifacts that produced it.
+
+## First things in the wiring PR
+
+- Build the detector in the app lifespan when liveness mode is not `off`, and
+  refuse to start if the PAD models are missing.
+- Order the check as: quality gate -> `score_face` (mapped full-res box) ->
+  threshold -> match only on pass.
+- Add an end-to-end model test: take a golden image upscaled to about 4000 px,
+  run it through the embedder, box mapping, and detector, and check the score
+  stays near the golden value.
+- Prefer `score_face(full_res_image, embedding_result)` so the downscaled
+  `EmbeddingResult.bbox` cannot be passed raw.
+- Map `LivenessModelNotFoundError` to a startup failure or HTTP 500. Do not
+  reuse the `EmbedderError` -> HTTP 422 path.
+- Consider `FACECHECK_CV_THREADS` during multi-worker load tests.

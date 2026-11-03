@@ -51,13 +51,34 @@ class ModelNotFoundError(EmbedderError):
 
 @dataclass(frozen=True)
 class EmbeddingResult:
-    """A normalized face embedding plus the detection that produced it."""
+    """A normalized face embedding plus the detection that produced it.
+
+    ``bbox`` and ``landmarks`` stay in the downscaled detection coordinate
+    space, which is what ``alignCrop`` operates on. ``detection_scale`` is
+    ``downscaled_width / original_width`` so callers such as the liveness crop
+    can map the box back to full-resolution pixels.
+
+    Use ``full_res_bbox_xywh`` for anything that indexes the original frame,
+    and prefer ``LivenessDetector.score_face(full_res_image, result)`` as the
+    wiring entry point so the downscaled ``bbox`` cannot be passed raw.
+    """
 
     embedding: np.ndarray
     bbox: tuple[float, float, float, float]
     landmarks: np.ndarray | None
     model_version: str
     detector_score: float | None = None
+    detection_scale: float = 1.0
+
+    @property
+    def full_res_bbox_xywh(self) -> list[int]:
+        """``bbox`` mapped back to full-resolution ``[x, y, w, h]`` pixels."""
+
+        # Imported lazily: ``facecheck.liveness`` imports this module for the
+        # SHA helpers, so a top-level import would form a package cycle.
+        from facecheck.liveness.boxes import map_detection_box_to_full_res
+
+        return map_detection_box_to_full_res(self.bbox, self.detection_scale)
 
 
 @runtime_checkable
@@ -205,7 +226,7 @@ class OpenCVYuNetSFaceEmbedder:
         if height == 0 or width == 0:
             raise QualityError(INVALID_IMAGE, "empty image")
 
-        image = _maybe_downscale(image, self._detect_max_side)
+        image, detection_scale = _maybe_downscale(image, self._detect_max_side)
         height, width = image.shape[:2]
 
         # FaceDetectorYN keeps the input size as mutable state, so detection
@@ -235,19 +256,30 @@ class OpenCVYuNetSFaceEmbedder:
             landmarks=face.landmarks,
             model_version=self._model_version,
             detector_score=face.score,
+            detection_scale=detection_scale,
         )
 
 
-def _maybe_downscale(image: np.ndarray, max_side: int) -> np.ndarray:
+def _maybe_downscale(image: np.ndarray, max_side: int) -> tuple[np.ndarray, float]:
+    """Downscale for detection and return the actual width scale.
+
+    The returned scale is ``downscaled_width / original_width`` (``1.0`` when
+    no resize happens). Downscaling preserves aspect ratio, so the same
+    isotropic scale maps x/w and y/h; y uses it too, documented here rather
+    than computing a separate height ratio.
+    """
+
     if max_side <= 0:
-        return image
+        return image, 1.0
     height, width = image.shape[:2]
     longest = max(height, width)
     if longest <= max_side:
-        return image
+        return image, 1.0
     scale = max_side / float(longest)
     size = (max(1, round(width * scale)), max(1, round(height * scale)))
-    return cv2.resize(image, size, interpolation=cv2.INTER_AREA)
+    resized = cv2.resize(image, size, interpolation=cv2.INTER_AREA)
+    detection_scale = size[0] / float(width)
+    return resized, detection_scale
 
 
 def _to_candidates(raw_faces: np.ndarray | None) -> list[FaceCandidate]:

@@ -235,6 +235,7 @@ variables or a local `.env` (see `.env.example`).
 | `FACECHECK_DETECTOR_SCORE_THRESHOLD` | `0.9` | YuNet detection confidence |
 | `FACECHECK_DETECT_MAX_SIDE` | `960` | Downscale the longest side to this before detection; `0` disables |
 | `FACECHECK_MAX_PIXELS` | `25000000` | Reject larger images from the header before decoding |
+| `FACECHECK_CV_THREADS` | unset | Cap OpenCV intra-op threads (`cv2.setNumThreads`); unset keeps OpenCV's default. Useful under multiple uvicorn workers to avoid CPU oversubscription |
 | `FACECHECK_ENROLL_MIN_IMAGES` | `3` | Minimum images per enrollment |
 | `FACECHECK_ENROLL_MAX_IMAGES` | `5` | Maximum images per enrollment |
 | `FACECHECK_MAX_UPLOAD_BYTES` | `10485760` | Per-image upload limit |
@@ -470,6 +471,7 @@ src/facecheck/
   embeddings.py   FaceEmbedder protocol + YuNet/SFace implementation
   quality.py      exactly-one-face, absolute/relative size gate
   similarity.py   cosine similarity, best-of-templates, decision
+  liveness/       PAD runtime: protocol, CropImage port, box mapper, MiniFASNet
   storage.py      SQLAlchemy models + AES-GCM template encryption
   service.py      consent, enroll / verify / delete use cases
   api.py          FastAPI app, API-key middleware, error envelope
@@ -478,6 +480,7 @@ scripts/
   download_models.py    pinned model download + SHA-256 verification
   fetch_lfw.py          LFW pairs + images for evaluation
   export_minifasnet_onnx.py  offline MiniFASNet -> ONNX export + parity
+  pad_golden_report.py  runtime MiniFASNet scores for the golden set
   _minifasnet_arch.py   vendored MiniFASNet architecture (export only)
   _crop_image.py        verbatim upstream CropImage port for PAD crops
 eval/
@@ -604,6 +607,14 @@ from `scripts/_crop_image.py`, require the ONNX files, and skip cleanly when
 `FACECHECK_PAD_GOLDEN_DIR` is unset or missing. Background and open risks are
 recorded in
 [`docs/adr/0002-presentation-attack-detection.md`](docs/adr/0002-presentation-attack-detection.md).
+
+The runtime building blocks now live under `src/facecheck/liveness/`: a
+`LivenessDetector` protocol and `LivenessResult`, a runtime `CropImage` port
+(kept bit-identical to the scripts reference), a detection-to-full-res box
+mapper, and `MiniFASNetLivenessDetector`. The detector scores a full-resolution
+image plus a face box and reports the averaged real probability. It applies no
+threshold and is not wired into enroll or verify; full PAD integration remains
+Proposed.
 
 ## Development
 
