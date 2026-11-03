@@ -5,7 +5,9 @@
 - Deciders: facecheck maintainers
 - Related: `scripts/export_minifasnet_onnx.py`, `scripts/model_checksums.json`,
   `src/facecheck/liveness/`, `tests/test_minifasnet_parity.py`,
-  `tests/test_liveness_crops.py`, `tests/test_liveness_boxes.py`
+  `tests/test_liveness_crops.py`, `tests/test_liveness_boxes.py`,
+  `docs/pad-capture-protocol.md`, `eval/pad_eval.py`,
+  `scripts/pad_capture_crypto.py`
 
 ## Context
 
@@ -70,6 +72,30 @@ point `MiniFASNetLivenessDetector.score_face`, typed liveness errors
 reaching the PAD crop raw and keep PAD failures out of the embedder error
 hierarchy. `LivenessModelNotFoundError` deliberately does not subclass
 `EmbedderError`; mapping it to HTTP 422 would be wrong.
+
+### Capture protocol and evaluation harness landed
+
+`docs/pad-capture-protocol.md` defines the consented, out-of-repo capture
+protocol and the manifest schema. `eval/pad_eval.py` (run through
+`scripts/pad_eval.py`) scores a capture directory and writes aggregate JSON and
+Markdown reports using ISO/IEC 30107-3 APCER and BPCER helpers in
+`eval/metrics.py`; IAPMR is reported as not measured until the matcher is wired
+in. `eval/pad_crypto.py` and `scripts/pad_capture_crypto.py` provide AES-GCM
+encryption for the capture tree with the key read from
+`FACECHECK_PAD_CAPTURE_KEY`.
+
+The evaluation threshold remains **provisional**. The harness can select an
+operating point for a BPCER target and report BPCER at an APCER target, but
+those numbers are only as representative as the capture set. No PAD threshold
+is shipped, no liveness decision is wired into enroll or verify, and the report
+caveats call out presentation-level counting, session-based splits, and the
+small-subject limitation.
+
+The harness also documents a production ingest issue without changing it:
+`decode_image_bgr` rejects images above `DEFAULT_MAX_PIXELS` (25 MP), while
+32 MP phone photos are common. Evaluation loads images through OpenCV and can
+downscale with `--max-side`. A later PR should choose the client/API downscale
+policy; this ADR does not change the API path.
 
 ## Consequences
 

@@ -406,6 +406,22 @@ model/git revisions, is committed at
 [`eval/reports/lfw_report.md`](eval/reports/lfw_report.md), with the ROC and
 DET curves as PNGs next to it.
 
+### PAD capture evaluation
+
+PAD evaluation uses a consented, out-of-repo capture directory described in
+[`docs/pad-capture-protocol.md`](docs/pad-capture-protocol.md): presentations
+are counted as presentations (not frames), calibration and test sets are split
+by session, and the capture tree can be encrypted at rest with
+`scripts/pad_capture_crypto.py` and `FACECHECK_PAD_CAPTURE_KEY`.
+`python scripts/pad_eval.py --manifest /path/to/manifest.csv` scores the
+captures with the MiniFASNet detector and writes aggregate JSON/Markdown reports
+with APCER, BPCER, rule-of-three bounds, Wilson intervals, a threshold sweep,
+detection-failure rates, and latency. It excludes detection failures from PAD
+rates, keeps a lower-threshold diagnostic pass separate, and never writes image
+paths or per-presentation scores; the evaluation path loads large phone photos
+through OpenCV instead of the API's 25 MP upload guard, with optional
+`--max-side` downscaling.
+
 ### Evaluation caveats
 
 - **152 test pairs were excluded** by the production quality gate. This is not
@@ -481,17 +497,23 @@ scripts/
   fetch_lfw.py          LFW pairs + images for evaluation
   export_minifasnet_onnx.py  offline MiniFASNet -> ONNX export + parity
   pad_golden_report.py  runtime MiniFASNet scores for the golden set
+  pad_eval.py           PAD capture evaluation CLI (writes aggregate reports)
+  pad_capture_crypto.py AES-GCM encrypt/decrypt for out-of-repo captures
   _minifasnet_arch.py   vendored MiniFASNet architecture (export only)
   _crop_image.py        verbatim upstream CropImage port for PAD crops
 eval/
-  metrics.py            FAR/FRR helpers, rule of three, Wilson intervals
+  metrics.py            FAR/FRR and APCER/BPCER helpers, rule of three, Wilson
   run_lfw.py            train-fit / test-report LFW benchmark
+  pad_eval.py           manifest parsing, scoring passes, aggregate reports
+  pad_crypto.py         AES-GCM envelopes for the capture tree
   reports/              committed markdown/JSON + ROC/DET PNGs
 tests/                  unit tests + model-gated integration tests
   fixtures/minifasnet_parity.json  replayable PyTorch/ONNX parity reference
+  fixtures/pad_manifest_example.csv  synthetic PAD manifest schema example
 docs/adr/0001-face-models.md
 docs/adr/0002-presentation-attack-detection.md
 docs/pad_golden_manifest.md  out-of-repo semantic golden schema
+docs/pad-capture-protocol.md  out-of-repo PAD capture protocol + manifest schema
 ```
 
 ## Models and licensing

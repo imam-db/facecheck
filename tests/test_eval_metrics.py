@@ -5,10 +5,17 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from eval.metrics import (
+    apcer,
+    bpcer,
+    choose_apcer_threshold,
+    choose_bpcer_threshold,
     choose_far_threshold,
     choose_youden,
     failure_to_acquire,
     generalized_frr,
+    iapmr,
+    pad_rates_at,
+    pad_threshold_sweep,
     roc_auc,
     rule_of_three,
     scores_at,
@@ -103,3 +110,79 @@ def test_roc_auc_on_synthetic_scores() -> None:
     scores = np.array([0.9, 0.8, 0.2, 0.1])
     labels = np.array([1, 1, 0, 0])
     assert roc_auc(scores, labels) == pytest.approx(1.0)
+
+
+def test_pad_rate_helpers_and_empty_denominators() -> None:
+    assert apcer(3, 10) == pytest.approx(0.3)
+    assert bpcer(1, 4) == pytest.approx(0.25)
+    assert iapmr(2, 5) == pytest.approx(0.4)
+    assert apcer(0, 0) is None
+    assert bpcer(0, 0) is None
+    assert iapmr(0, 0) is None
+
+
+def test_pad_rates_at_accepts_at_or_above_the_threshold() -> None:
+    rates = pad_rates_at(
+        bona_scores=[0.9, 0.5, 0.1],
+        attack_scores=[0.9, 0.4, 0.2],
+        threshold=0.5,
+    )
+    assert rates.bona_presentations == 3
+    assert rates.bona_rejected == 1
+    assert rates.bpcer == pytest.approx(1 / 3)
+    assert rates.attack_presentations == 3
+    assert rates.attack_accepted == 1
+    assert rates.apcer == pytest.approx(1 / 3)
+
+
+def test_pad_rates_with_no_bona_or_attacks() -> None:
+    rates = pad_rates_at([], [], 0.5)
+    assert rates.bpcer is None
+    assert rates.apcer is None
+    assert rates.bona_presentations == 0
+    assert rates.attack_presentations == 0
+
+
+def test_choose_bpcer_threshold_picks_the_highest_threshold_in_budget() -> None:
+    scores = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    threshold = choose_bpcer_threshold(scores, 0.2)
+    assert threshold == pytest.approx(0.3)
+    assert pad_rates_at(scores, [], threshold).bpcer == pytest.approx(0.2)
+
+    assert choose_bpcer_threshold(scores, 0.0) == pytest.approx(0.1)
+    assert choose_bpcer_threshold([], 0.05) is None
+
+
+def test_choose_bpcer_threshold_handles_duplicate_scores() -> None:
+    scores = [0.2, 0.2, 0.2, 0.9]
+    assert choose_bpcer_threshold(scores, 0.5) == pytest.approx(0.2)
+
+
+def test_choose_apcer_threshold_picks_the_lowest_threshold_in_budget() -> None:
+    scores = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    threshold = choose_apcer_threshold(scores, 0.2)
+    assert threshold == pytest.approx(0.9)
+    assert pad_rates_at([], scores, threshold).apcer == pytest.approx(0.2)
+
+    assert choose_apcer_threshold([], 0.1) is None
+
+
+def test_choose_apcer_threshold_can_reach_zero_accepts() -> None:
+    threshold = choose_apcer_threshold([0.2, 0.6, 0.9], 0.0)
+    assert threshold is not None
+    assert threshold > 0.9
+    assert pad_rates_at([], [0.2, 0.6, 0.9], threshold).apcer == pytest.approx(0.0)
+
+
+def test_threshold_target_helpers_reject_bad_targets() -> None:
+    with pytest.raises(ValueError):
+        choose_bpcer_threshold([0.5], -0.1)
+    with pytest.raises(ValueError):
+        choose_apcer_threshold([0.5], 1.1)
+
+
+def test_pad_threshold_sweep_sorts_and_deduplicates() -> None:
+    sweep = pad_threshold_sweep([0.2, 0.8], [0.4, 0.9], [0.9, 0.5, 0.5])
+    assert [point.threshold for point in sweep] == pytest.approx([0.5, 0.9])
+    assert sweep[0].bpcer == pytest.approx(0.5)
+    assert sweep[0].apcer == pytest.approx(0.5)
