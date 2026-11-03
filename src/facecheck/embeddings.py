@@ -57,6 +57,10 @@ class EmbeddingResult:
     space, which is what ``alignCrop`` operates on. ``detection_scale`` is
     ``downscaled_width / original_width`` so callers such as the liveness crop
     can map the box back to full-resolution pixels.
+
+    Use ``full_res_bbox_xywh`` for anything that indexes the original frame,
+    and prefer ``LivenessDetector.score_face(full_res_image, result)`` as the
+    wiring entry point so the downscaled ``bbox`` cannot be passed raw.
     """
 
     embedding: np.ndarray
@@ -65,6 +69,16 @@ class EmbeddingResult:
     model_version: str
     detector_score: float | None = None
     detection_scale: float = 1.0
+
+    @property
+    def full_res_bbox_xywh(self) -> list[int]:
+        """``bbox`` mapped back to full-resolution ``[x, y, w, h]`` pixels."""
+
+        # Imported lazily: ``facecheck.liveness`` imports this module for the
+        # SHA helpers, so a top-level import would form a package cycle.
+        from facecheck.liveness.boxes import map_detection_box_to_full_res
+
+        return map_detection_box_to_full_res(self.bbox, self.detection_scale)
 
 
 @runtime_checkable

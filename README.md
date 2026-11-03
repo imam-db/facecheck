@@ -235,6 +235,7 @@ variables or a local `.env` (see `.env.example`).
 | `FACECHECK_DETECTOR_SCORE_THRESHOLD` | `0.9` | YuNet detection confidence |
 | `FACECHECK_DETECT_MAX_SIDE` | `960` | Downscale the longest side to this before detection; `0` disables |
 | `FACECHECK_MAX_PIXELS` | `25000000` | Reject larger images from the header before decoding |
+| `FACECHECK_CV_THREADS` | unset | Cap OpenCV intra-op threads (`cv2.setNumThreads`); unset keeps OpenCV's default. Useful under multiple uvicorn workers to avoid CPU oversubscription |
 | `FACECHECK_ENROLL_MIN_IMAGES` | `3` | Minimum images per enrollment |
 | `FACECHECK_ENROLL_MAX_IMAGES` | `5` | Maximum images per enrollment |
 | `FACECHECK_MAX_UPLOAD_BYTES` | `10485760` | Per-image upload limit |
@@ -479,6 +480,7 @@ scripts/
   download_models.py    pinned model download + SHA-256 verification
   fetch_lfw.py          LFW pairs + images for evaluation
   export_minifasnet_onnx.py  offline MiniFASNet -> ONNX export + parity
+  pad_golden_report.py  runtime MiniFASNet scores for the golden set
   _minifasnet_arch.py   vendored MiniFASNet architecture (export only)
   _crop_image.py        verbatim upstream CropImage port for PAD crops
 eval/

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
+from facecheck.embeddings import EmbeddingResult
 from facecheck.liveness.boxes import map_detection_box_to_full_res
 
 
@@ -14,9 +16,21 @@ def test_scale_one_still_truncates_each_component() -> None:
 
 
 def test_scale_below_one_expands_and_truncates() -> None:
-    # 960 / 2000 = 0.48; upstream-style int() truncation, not round().
+    # 960 / 2000 = 0.48; int() truncation per component, not round().
     mapped = map_detection_box_to_full_res([100.0, 50.0, 60.0, 90.0], 0.48)
     assert mapped == [208, 104, 125, 187]
+
+
+def test_full_res_bbox_xywh_property() -> None:
+    result = EmbeddingResult(
+        embedding=np.zeros(3, dtype=np.float32),
+        bbox=(48.0, 24.0, 30.0, 45.0),
+        landmarks=None,
+        model_version="fake",
+        detection_scale=0.48,
+    )
+    assert result.full_res_bbox_xywh == [100, 50, 62, 93]
+    assert all(isinstance(value, int) for value in result.full_res_bbox_xywh)
 
 
 def test_truncation_pins_known_floats() -> None:

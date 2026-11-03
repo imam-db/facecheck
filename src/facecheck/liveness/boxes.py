@@ -13,13 +13,16 @@ def map_detection_box_to_full_res(
     """Map a downscaled-detection box back to full-resolution pixels.
 
     ``detection_scale`` is ``downscaled_width / original_width``. Each of
-    ``x, y, w, h`` is divided by it and truncated with ``int(...)``, matching
-    the upstream integer box convention rather than rounding. The same
-    isotropic scale is applied to y/h because downscaling preserves aspect
-    ratio up to sub-pixel rounding.
+    ``x, y, w, h`` is divided by it and independently truncated with
+    ``int(...)``. This is a deliberate helper pinned by unit tests, not a
+    bit-exact upstream port: Silent-Face computes integer edges and derives
+    width and height as ``right - left + 1``, which can differ by a pixel. PAD
+    crops use a different detector box than upstream RetinaFace anyway.
 
-    When ``detection_scale == 1.0`` the division is a no-op but ``int(...)``
-    truncation is still applied to every component.
+    The same isotropic scale is applied to y/h because downscaling preserves
+    aspect ratio up to sub-pixel rounding. When ``detection_scale == 1.0`` the
+    division is a no-op but ``int(...)`` truncation is still applied to every
+    component.
     """
 
     if detection_scale <= 0:

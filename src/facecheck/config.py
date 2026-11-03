@@ -9,6 +9,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+import cv2
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -51,6 +52,7 @@ class Settings(BaseSettings):
 
     detect_max_side: int = Field(default=960, ge=0)
     max_pixels: int = Field(default=25_000_000, ge=1)
+    cv_threads: int | None = Field(default=None, ge=0)
 
     enroll_min_images: int = Field(default=3, ge=1)
     enroll_max_images: int = Field(default=5, ge=1)
@@ -81,6 +83,18 @@ class Settings(BaseSettings):
         if self.enroll_threshold is not None:
             return self.enroll_threshold
         return self.match_threshold
+
+
+def apply_opencv_thread_settings(settings: Settings) -> None:
+    """Apply ``FACECHECK_CV_THREADS`` to OpenCV when it is configured.
+
+    ``None`` (the default) leaves OpenCV's thread count untouched; ``0`` lets
+    OpenCV choose based on the machine. Call this once per process at startup,
+    or from construction sites as an interim step.
+    """
+
+    if settings.cv_threads is not None:
+        cv2.setNumThreads(settings.cv_threads)
 
 
 def validate_startup_settings(settings: Settings) -> None:
