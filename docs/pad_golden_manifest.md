@@ -33,7 +33,23 @@ Each case:
 | `bbox_xywh` | `[x, y, w, h]` | yes | Face box in pixels, in the full-resolution image. |
 | `expected_real_prob` | number | yes | Average softmax(index 1) across both models on the correct raw-BGR crop. |
 | `expected_per_model` | object | no | Per-model real probabilities keyed by ONNX filename. |
+| `discriminative` | boolean | no | Defaults to **false** when absent. Marks a case where the model already labels the correct crop correctly, so the `/255` and RGB-swap contrast assertions are observable. Mark missed-attack cases `false`. |
 | `notes` | object | no | Informational scores such as `div255_real_prob` and `rgb_swap_real_prob`. |
+
+### Discriminative cases
+
+The contrast assertions only make sense when the model already gets the label
+right on the correct raw-BGR crop. For a **missed attack** (a spoof the model
+scores as real), dividing by 255 or swapping channels cannot produce the
+expected dramatic change, so asserting on it would fail for reasons unrelated
+to preprocessing. Set `"discriminative": true` only on cases that show the
+regression clearly.
+
+The flag defaults to `false` when absent, so newly added cases are safe until
+someone deliberately marks them. The golden set must still contain at least one
+discriminative `real` case and at least one discriminative `spoof` case;
+`test_golden_set_has_discriminative_coverage` enforces that from the manifest
+alone (no images or models required).
 
 ## How values are produced
 
@@ -68,13 +84,18 @@ Omitting it prints the same numbers without modifying the file.
 
 ## What the tests assert
 
-- The `cv2.dnn` runtime path reproduces `expected_real_prob` within `1e-3`.
-- The `/255` variant puts every case below `0.1` real probability, and for
-  `real` cases it differs from the expected value by more than `0.5`. Dividing
-  by 255 marks every face as an attack.
-- For `spoof` cases the RGB-swapped variant is at least `0.5` higher in real
-  probability than the correct crop. The swap is fail-open: it accepts attacks.
-  Real cases may still look real after the swap, so no assertion is made there.
+- The `cv2.dnn` runtime path reproduces `expected_real_prob` within `1e-3` for
+  **every** case, including non-discriminative missed attacks.
+- For cases marked `discriminative`, the `/255` variant puts the case below
+  `0.1` real probability, and for `real` cases it differs from the expected
+  value by more than `0.5`. Dividing by 255 marks every face as an attack.
+  Non-discriminative cases skip this test with a clear reason.
+- For `discriminative` `spoof` cases the RGB-swapped variant is at least `0.5`
+  higher in real probability than the correct crop. The swap is fail-open: it
+  accepts attacks. Non-discriminative cases (including missed attacks) and
+  `real` cases skip this test; no gain claim is made for them.
+- The manifest contains at least one discriminative `real` case and at least
+  one discriminative `spoof` case.
 
 ## Privacy
 

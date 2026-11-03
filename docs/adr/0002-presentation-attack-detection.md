@@ -91,3 +91,27 @@ following notes are carry-over requirements:
   missing.
 - Log the crop aspect ratio; the upstream models were trained on roughly 3:4
   boxes.
+
+### Watch first in PR 2
+
+1. Run the semantic golden test against the runtime `LivenessDetector`, not the
+   `scripts/` helpers. Keep the scripts crop as the reference and assert
+   `np.array_equal` between it and the runtime crop on random boxes, so the
+   runtime cannot drift from the values the manifest pins.
+2. Move the crop implementation into `src/facecheck/liveness/` with the
+   Apache-2.0 modification notice. The runtime cannot import from `scripts/`,
+   which is not part of the installed package.
+3. Coordinate frames: `detect_and_embed` must return the original frame and the
+   detection scale; map the YuNet box back to full resolution before cropping.
+   Pin the integer `[x, y, w, h]` rounding with a unit test so the box that
+   reaches the PAD crop is deterministic.
+4. Guard the `cv2.dnn.Net` with a thread lock, or use per-thread nets, as the
+   embedder does. `cv2.dnn.Net` is not safe for concurrent `setInput`/`forward`.
+5. Fail closed at startup when the liveness mode is not `off`; run PAD only
+   after the face gate passes; never emit a match score on `liveness_failed`.
+6. Keep golden coverage in CI via a PR-template checkbox (or an encrypted golden
+   set later). The images cannot be committed, so the local run must be an
+   explicit review step.
+7. Default the mode to `off` until the evaluation picks a threshold. Expose the
+   PAD `model_version` (both SHA-256 prefixes) in `/v1/meta` and in responses so
+   a score can be traced to the artifacts that produced it.

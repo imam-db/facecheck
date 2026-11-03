@@ -52,6 +52,10 @@ consented real/print/screen images plus ``manifest.json`` (schema in
 upstream crop at scales 2.7 and 4.0, scores raw BGR [0, 255] inputs, softmaxes
 each model, and averages index ``1``. Pass ``--update-golden`` to write the
 computed values back to that local manifest; the images stay outside the repo.
+When ``--silent-face-root`` is provided as well, every golden crop is also
+compared with the upstream ``CropImage`` using ``np.array_equal`` so a drift in
+the verbatim port fails the run instead of silently changing the semantic
+reference.
 """
 
 from __future__ import annotations
@@ -368,11 +372,55 @@ def score_case(
     return probs
 
 
+def load_upstream_crop_image(silent_face_root: Path):
+    """Import upstream ``CropImage`` from a pinned Silent-Face clone."""
+
+    root = str(silent_face_root.resolve())
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    try:
+        from src.generate_patches import CropImage as UpstreamCropImage
+    except ModuleNotFoundError as exc:
+        raise SystemExit(
+            f"could not import upstream CropImage from {silent_face_root}: {exc}"
+        ) from exc
+    return UpstreamCropImage
+
+
+def verify_upstream_crop(
+    image: np.ndarray,
+    bbox_xywh: list[int],
+    case_id: str,
+    upstream_cropper: Any,
+) -> None:
+    """Assert the vendored crop port matches upstream bit-for-bit at both scales."""
+
+    cropper = CropImage()
+    for spec in MODEL_SPECS:
+        port_crop = cropper.crop(image, bbox_xywh, spec.scale, INPUT_WIDTH, INPUT_HEIGHT)
+        upstream_crop = upstream_cropper.crop(
+            image, bbox_xywh, spec.scale, INPUT_WIDTH, INPUT_HEIGHT
+        )
+        if np.array_equal(port_crop, upstream_crop):
+            continue
+        differing = (
+            int(np.count_nonzero(port_crop != upstream_crop))
+            if port_crop.shape == upstream_crop.shape
+            else "shape-dependent"
+        )
+        raise SystemExit(
+            f"{case_id}: crop mismatch vs upstream at scale {spec.scale} "
+            f"(port {port_crop.shape} vs upstream {upstream_crop.shape}, "
+            f"differing values: {differing})"
+        )
+
+
 def evaluate_golden(
     golden_dir: Path,
     models_dir: Path,
     *,
     update: bool,
+    silent_face_root: Path | None = None,
 ) -> dict[str, Any]:
     manifest_path = golden_dir / "manifest.json"
     if not manifest_path.is_file():
@@ -385,6 +433,9 @@ def evaluate_golden(
     runners = {
         spec.onnx_name: make_onnx_runner(models_dir / spec.onnx_name) for spec in MODEL_SPECS
     }
+    upstream_cropper = (
+        load_upstream_crop_image(silent_face_root)() if silent_face_root is not None else None
+    )
 
     for case in cases:
         image_path = golden_dir / case["image"]
@@ -392,6 +443,10 @@ def evaluate_golden(
         if image is None:
             raise SystemExit(f"could not read golden image: {image_path}")
         bbox = [int(value) for value in case["bbox_xywh"]]
+        case_id = case.get("id", case["image"])
+
+        if upstream_cropper is not None:
+            verify_upstream_crop(image, bbox, case_id, upstream_cropper)
 
         per_model = score_case(image, bbox, runners)
         expected = float(np.mean(list(per_model.values())))
@@ -585,7 +640,12 @@ def main(argv: list[str] | None = None) -> int:
     print(f"wrote parity reference {parity_path}")
 
     if args.golden_dir is not None:
-        evaluate_golden(args.golden_dir, models_dir, update=args.update_golden)
+        evaluate_golden(
+            args.golden_dir,
+            models_dir,
+            update=args.update_golden,
+            silent_face_root=args.silent_face_root,
+        )
 
     return 0
 

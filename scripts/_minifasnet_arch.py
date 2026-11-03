@@ -8,7 +8,8 @@ licensed under the Apache License 2.0. See
 ``NOTICE``.
 
 Apache License 2.0 section 4(b) modification notice: Modified from upstream
-b6d5f04: removed L2Norm; modernized super() calls; no functional changes.
+b6d5f04: removed L2Norm; modernized super() calls; and minor stylistic
+refactors (list comprehensions, early returns); no functional changes.
 
 Only the classes used by the MiniFASNetV2 and MiniFASNetV1SE checkpoints are
 included. Class and module names are preserved so upstream ``.pth`` state

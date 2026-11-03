@@ -14,8 +14,10 @@ checks pass. When an entry declares ``bytes`` the downloader refuses a response
 whose declared or observed size exceeds that value.
 
 ``optional: true`` remains supported for future non-critical artifacts: an
-optional entry that cannot be fetched is skipped with a warning instead of
-failing the run. None of the current entries use it.
+optional entry that cannot be fetched (network error, timeout, 404) is skipped
+with a warning instead of failing the run. Checksum or size mismatches are
+integrity failures, not transport failures, so they are always fatal even for
+optional entries. None of the current entries use ``optional``.
 """
 
 from __future__ import annotations
@@ -36,6 +38,10 @@ CHUNK_SIZE = 1024 * 1024
 
 class DownloadError(RuntimeError):
     """A model could not be fetched from any of its manifest URLs."""
+
+
+class IntegrityError(RuntimeError):
+    """A model failed checksum or size verification; always fatal."""
 
 
 def sha256_file(path: Path) -> str:
@@ -80,7 +86,7 @@ def check_file(
 ) -> str:
     actual = sha256_file(path)
     if actual != expected_sha:
-        raise SystemExit(
+        raise IntegrityError(
             f"{filename}: checksum mismatch\n"
             f"  expected {expected_sha}\n  actual   {actual}\n"
             "Re-run with --force to download again."
@@ -88,7 +94,7 @@ def check_file(
     if expected_bytes is not None:
         actual_bytes = path.stat().st_size
         if actual_bytes != expected_bytes:
-            raise SystemExit(
+            raise IntegrityError(
                 f"{filename}: size mismatch\n"
                 f"  expected {expected_bytes}\n  actual   {actual_bytes}\n"
                 "Re-run with --force to download again."
@@ -113,9 +119,14 @@ def download(
         with urllib.request.urlopen(request, timeout=120) as response, partial.open("wb") as out:
             content_length = response.headers.get("Content-Length")
             if expected_bytes is not None and content_length is not None:
-                declared = int(content_length)
-                if declared > expected_bytes:
+                try:
+                    declared = int(content_length)
+                except ValueError as exc:
                     raise DownloadError(
+                        f"{destination.name}: invalid Content-Length {content_length!r}"
+                    ) from exc
+                if declared > expected_bytes:
+                    raise IntegrityError(
                         f"{destination.name}: refusing oversized download "
                         f"({declared} bytes > expected {expected_bytes})"
                     )
@@ -125,7 +136,7 @@ def download(
                     break
                 size += len(chunk)
                 if expected_bytes is not None and size > expected_bytes:
-                    raise DownloadError(
+                    raise IntegrityError(
                         f"{destination.name}: refusing oversized download "
                         f"(> expected {expected_bytes} bytes)"
                     )
@@ -133,13 +144,15 @@ def download(
                 out.write(chunk)
 
         actual = digest.hexdigest()
+        if not actual:
+            raise IntegrityError(f"{destination.name}: empty SHA-256 after download")
         if actual != expected_sha:
-            raise DownloadError(
+            raise IntegrityError(
                 f"{destination.name}: checksum mismatch before rename\n"
                 f"  expected {expected_sha}\n  actual   {actual}"
             )
         if expected_bytes is not None and size != expected_bytes:
-            raise DownloadError(
+            raise IntegrityError(
                 f"{destination.name}: size mismatch before rename\n"
                 f"  expected {expected_bytes}\n  actual   {size}"
             )
@@ -235,28 +248,33 @@ def main(argv: list[str] | None = None) -> int:
         destination = models_dir / filename
         expected_sha = required_sha256(entry, filename)
         expected_bytes = expected_size(entry, filename)
-        if args.verify_only:
-            if not destination.is_file():
+        try:
+            if args.verify_only:
+                if not destination.is_file():
+                    if optional:
+                        print(f"skip optional {filename} (not present)", file=sys.stderr)
+                        skipped.append(filename)
+                        continue
+                    raise SystemExit(f"{filename}: missing (expected in {models_dir})")
+                actual = check_file(destination, filename, expected_sha, expected_bytes)
+                print(f"ok {filename} {actual}")
+                checksums[filename] = actual
+                continue
+
+            try:
+                destination, actual, downloaded = fetch_model(
+                    filename, entry, models_dir, force=args.force
+                )
+            except DownloadError as exc:
                 if optional:
-                    print(f"skip optional {filename} (not present)", file=sys.stderr)
+                    print(f"skip optional {filename}: {exc}", file=sys.stderr)
                     skipped.append(filename)
                     continue
-                raise SystemExit(f"{filename}: missing (expected in {models_dir})")
-            actual = check_file(destination, filename, expected_sha, expected_bytes)
-            print(f"ok {filename} {actual}")
-            checksums[filename] = actual
-            continue
-
-        try:
-            destination, actual, downloaded = fetch_model(
-                filename, entry, models_dir, force=args.force
-            )
-        except DownloadError as exc:
-            if optional:
-                print(f"skip optional {filename}: {exc}", file=sys.stderr)
-                skipped.append(filename)
-                continue
+                raise SystemExit(str(exc)) from exc
+        except IntegrityError as exc:
+            # Checksum or size failures are never skipped, even for optional entries.
             raise SystemExit(str(exc)) from exc
+
         entry["sha256"] = actual
         updated = updated or downloaded
         checksums[filename] = actual

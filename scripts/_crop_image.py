@@ -8,6 +8,10 @@ Copyright 2020 Minivision. Licensed under the Apache License 2.0. See
 ``third_party/Silent-Face-Anti-Spoofing.LICENSE`` and the repository-root
 ``NOTICE``.
 
+Apache License 2.0 section 4(b) modification notice: Modified from upstream
+b6d5f04 by adding type hints and the ``crop_face`` wrapper; crop arithmetic
+unchanged.
+
 The arithmetic is kept identical to upstream: the scale is clamped to fit the
 frame, the box is shifted inside the frame (never padded), the slice is
 inclusive on both ends (``right_bottom + 1``), and ``cv2.resize`` uses its

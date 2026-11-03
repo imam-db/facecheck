@@ -10,11 +10,17 @@ For each case the test reproduces the upstream crop with the verbatim
 ``CropImage`` port, scores raw BGR [0, 255] inputs through ``cv2.dnn``, and
 checks:
 
-- the real probability matches the manifest within ``1e-3``;
-- dividing by 255 drives every case below ``0.1`` (and, for real cases, well
-  away from the expected value), because the models were trained on raw pixels;
-- swapping BGR/RGB is fail-open for spoof cases: the swapped crop looks at least
-  ``0.5`` more real than the correct crop.
+- the real probability matches the manifest within ``1e-3`` for **every** case;
+- dividing by 255 drives *discriminative* cases below ``0.1`` (and, for real
+  cases, well away from the expected value), because the models were trained on
+  raw pixels;
+- swapping BGR/RGB is fail-open for discriminative spoof cases: the swapped crop
+  looks at least ``0.5`` more real than the correct crop.
+
+``discriminative`` defaults to ``False`` when absent (see
+``docs/pad_golden_manifest.md``), so the contrast assertions only run where the
+model already classifies the correct crop correctly. Missed-attack cases still
+have their expected score checked.
 """
 
 from __future__ import annotations
@@ -39,6 +45,12 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts._crop_image import CropImage  # noqa: E402
+
+from tests.pad_golden_policy import (  # noqa: E402
+    missing_discriminative_labels,
+    should_assert_div255,
+    should_assert_rgb_swap_gain,
+)
 
 GOLDEN_ENV = "FACECHECK_PAD_GOLDEN_DIR"
 INPUT_SIZE = 80
@@ -129,6 +141,17 @@ def _average(probs: dict[str, float]) -> float:
     return float(np.mean(list(probs.values())))
 
 
+def test_golden_set_has_discriminative_coverage() -> None:
+    """The manifest must exercise both labels with a discriminative case."""
+
+    missing = missing_discriminative_labels(CASES)
+    assert not missing, (
+        f"{MANIFEST_PATH}: no discriminative case for label(s) "
+        f"{', '.join(missing)}; mark at least one case per label with "
+        '"discriminative": true'
+    )
+
+
 @pytest.mark.parametrize("case", CASES, ids=[case["id"] for case in CASES])
 @requires_models
 def test_golden_real_probability(case: dict[str, Any]) -> None:
@@ -152,6 +175,9 @@ def test_golden_real_probability(case: dict[str, Any]) -> None:
 @pytest.mark.parametrize("case", CASES, ids=[case["id"] for case in CASES])
 @requires_models
 def test_golden_div255_is_wrong(case: dict[str, Any]) -> None:
+    if not should_assert_div255(case):
+        pytest.skip("case is not marked discriminative; /255 contrast is not observable")
+
     image_path = GOLDEN_DIR / case["image"]
     image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
     assert image is not None, f"could not read {image_path}"
@@ -174,6 +200,9 @@ def test_golden_div255_is_wrong(case: dict[str, Any]) -> None:
 @pytest.mark.parametrize("case", CASES, ids=[case["id"] for case in CASES])
 @requires_models
 def test_golden_rgb_swap_is_fail_open(case: dict[str, Any]) -> None:
+    if not should_assert_rgb_swap_gain(case):
+        pytest.skip("RGB-swap gain applies only to discriminative spoof cases")
+
     image_path = GOLDEN_DIR / case["image"]
     image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
     assert image is not None, f"could not read {image_path}"
@@ -182,9 +211,8 @@ def test_golden_rgb_swap_is_fail_open(case: dict[str, Any]) -> None:
     expected = float(case["expected_real_prob"])
     average = _average(_score_case(image, bbox, rgb_swap=True))
 
-    if case["label"] == "spoof":
-        # A channel swap makes attacks look real: the failure mode is fail-open.
-        assert average - expected > FAIL_OPEN_MARGIN, (
-            f"{case['id']}: RGB-swapped real probability {average:.6f} was not "
-            f"{FAIL_OPEN_MARGIN} above expected {expected:.6f}"
-        )
+    # A channel swap makes attacks look real: the failure mode is fail-open.
+    assert average - expected > FAIL_OPEN_MARGIN, (
+        f"{case['id']}: RGB-swapped real probability {average:.6f} was not "
+        f"{FAIL_OPEN_MARGIN} above expected {expected:.6f}"
+    )
